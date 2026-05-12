@@ -1,50 +1,343 @@
-# Welcome to your Expo app 👋
+# StoreMate POS & Inventory Mobile
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Tablet-first offline convenience store POS and inventory app built with Expo React Native, TypeScript, Expo Router, SQLite, Zustand, and React Hook Form.
 
-## Get started
+This version has no backend, no cloud sync, no Firebase, no Supabase, and no external database. All operational data is stored locally in `expo-sqlite`; AsyncStorage is used only for lightweight session IDs.
 
-1. Install dependencies
+## Current Status
 
-   ```bash
-   npm install
-   ```
+### Phase 1: Project Setup & Database
 
-2. Start the app
+Implemented:
 
-   ```bash
-   npx expo start
-   ```
+- Expo React Native TypeScript setup
+- Expo Router stack navigation
+- Tablet-first landscape app shell with dark sidebar
+- SQLite initialization through `SQLiteProvider`
+- Database schema and seed data
+- Sample products from the prototype
+- Reusable UI components:
+  - `Button`
+  - `Card`
+  - `Sidebar`
+  - `Header`
+  - `Badge`
+  - `Input`
+  - `Table`
+  - `Modal`
 
-In the output, you'll find options to open the app in a
+### Phase 2: Authentication, Users & Shifts
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+Implemented:
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+- Local PIN login with avatar/user selection
+- PIN hashing using `expo-crypto`
+- Session rehydration from SQLite plus AsyncStorage session IDs
+- Role-aware screen guards
+- Cashier, Supervisor, and Admin roles
+- Start shift flow
+- End shift flow
+- Shift summary screen
+- Opening balance
+- Expected cash
+- Actual cash
+- Cash variance
+- Cash in/out tracking
+- Audit log writes for login, failed login, shift start, shift end, and cash drawer movements
+- Users & Shift Management screen with user and recent shift tables
 
-## Get a fresh project
+### Phase 3: POS Checkout
 
-When you're ready, run:
+Implemented:
+
+- Live cart state using Zustand
+- Product grid backed by SQLite products
+- Category filtering
+- Product search by name, SKU, or barcode
+- Add item to cart
+- Quantity increment/decrement
+- Remove item
+- Void current cart
+- Hold current transaction to SQLite
+- Resume held transactions
+- Clear held transactions
+- Payment method screen
+- Cash payment screen with change calculation
+- Payment success screen
+- Payment methods:
+  - Cash
+  - Card
+  - GCash
+  - Maya
+  - GrabPay
+- Completed sales saved locally into `sales`, `sale_items`, and `payments`
+- Product stock deducted automatically on completed sale
+- Inventory batches deducted using earliest-expiry-first logic when batch rows exist
+- Stock movements written for each sold item
+- Active shift expected cash updated for cash payments
+- Sale completion audit log entries
+
+### Phase 4: Inventory & Stock-In
+
+Implemented:
+
+- Inventory list search and stock status filters
+- Product details screen
+- Batch and expiry table per product
+- Stock movement history per product
+- Add product screen
+- Edit product screen
+- Product fields:
+  - SKU
+  - Barcode
+  - Category
+  - Unit
+  - Regular price
+  - Promo price
+  - Unit cost
+  - Opening stock
+  - Reorder level
+- Stock adjustment screen
+- Positive and negative adjustments
+- Batch creation/update for positive adjustments
+- Earliest-expiry-first batch deduction for negative adjustments
+- Stock movement and audit log entries for adjustments
+- Supplier list screen
+- Add supplier form
+- Recent delivery list
+- Stock-in delivery screen
+- Supplier selection
+- Invoice number
+- Delivery date
+- Multiple delivery item rows
+- Batch number
+- Expiry date
+- Quantity
+- Unit cost
+- Delivery total
+- Save delivery
+- Automatic stock increase
+- Automatic `inventory_batches`, `delivery_items`, `stock_movements`, and `audit_logs` writes
+
+### Phase 5: Reports & Analytics
+
+Implemented:
+
+- Reports dashboard backed by local SQLite sales data
+- Daily, weekly, and monthly report ranges
+- Total sales KPI
+- Total transactions KPI
+- Average basket KPI
+- Items sold KPI
+- Hourly sales chart
+- Top-selling products
+- Payment method breakdown
+- Sales quality metrics:
+  - Discounts
+  - Returns
+  - Cancelled transactions
+  - Net sales
+- Sales report details screen
+- Completed sale row details with cashier, item count, payment methods, discounts, and net sales
+- Empty states for report ranges with no sales
+- Export report placeholder
+
+### Phase 6: Promotions, Prepaid & Settings
+
+Implemented:
+
+- Promotion list backed by local SQLite data
+- Create promotion flow
+- Edit promotion flow
+- Promo types:
+  - Bundle
+  - Time-based discount
+  - Percentage discount
+  - Fixed discount
+- Promo statuses:
+  - Active
+  - Scheduled
+  - Inactive
+- Product, category, and basket-level promotion targets
+- Rule JSON validation for advanced promo metadata
+- Seeded prototype-style promo examples through database migration v3
+- Prepaid/load transaction flow
+- Smart, Globe, TNT, and Sun provider selection
+- Preset and custom load amounts
+- Service fee and reference number capture
+- Shift and cashier attribution for prepaid records
+- Cash drawer expected cash update for prepaid/load cash collected
+- Recent prepaid transaction table
+- Settings dashboard with local editable settings
+- General settings
+- Payment method toggles
+- Receipt settings
+- Hardware setup placeholder
+- Users & roles shortcut
+- Backup & sync placeholder
+- Branch settings
+- System logs from `audit_logs`
+- About system panel with local database counts
+
+### Phase 7: Polish, Testing & Finalization
+
+Implemented:
+
+- Shared loading, empty, and error state component
+- Inventory loading and database error states
+- Reports loading and database error states
+- Cash payment validation extracted into reusable domain logic
+- Sale total calculation extracted into reusable domain logic
+- Batch stock deduction planning extracted into reusable domain logic
+- Report summary calculation extracted into reusable domain logic
+- SQLite integrity and foreign key health check from Settings > About System
+- Basic unit tests for:
+  - Sale totals and cash change
+  - Underpaid cash rejection
+  - Earliest-expiry-first stock deduction
+  - Negative stock prevention
+  - Report summary calculations
+- Test runner added through Node test plus `tsx`
+
+## Seeded Login Users
+
+| User | Role | PIN |
+| --- | --- | --- |
+| Juan Dela Cruz | Cashier | `1234` |
+| Maria Santos | Cashier | `2468` |
+| Ana Reyes | Supervisor | `1357` |
+| Admin User | Admin | `0000` |
+
+Role access:
+
+- Cashier: POS, shift flow, prepaid/load recording, inventory visibility
+- Supervisor: cashier access plus reports, users/shifts, suppliers, stock-in, promotions
+- Admin: all screens including settings
+
+## Run Locally
+
+Install dependencies:
 
 ```bash
-npm run reset-project
+npm install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Start Expo:
 
-## Learn more
+```bash
+npx expo start
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+For offline CLI startup:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+npx expo start --offline --port 8081
+```
 
-## Join the community
+Run checks:
 
-Join our community of developers creating universal apps.
+```bash
+npx tsc --noEmit
+npm run lint
+npm test
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Main Routes
+
+- `/login` - user avatar selection and PIN login
+- `/shift-start` - opening drawer balance and shift start
+- `/` - POS checkout with live cart, hold, void, and pay actions
+- `/payment` - payment method selection
+- `/cash-payment` - cash received and change calculation
+- `/payment-success` - completed sale confirmation
+- `/hold-transactions` - held cart resume and clear flow
+- `/shift-summary` - active or closed shift cash drawer summary
+- `/inventory` - product list backed by SQLite seed data
+- `/product-details` - product price, stock, batch, expiry, and movement details
+- `/product-form` - add or edit product master data
+- `/adjust-stock` - manual stock adjustment
+- `/users` - users and recent shifts management
+- `/reports` - local sales reports dashboard with KPIs, chart, top items, and payment breakdown
+- `/sales-report-details` - detailed sales report with daily, weekly, and monthly filters
+- `/stock-in` - supplier delivery recording with automatic stock increase
+- `/suppliers` - supplier list and add supplier workflow
+- `/promotions` - local promotion list, create, and edit workflow
+- `/prepaid` - prepaid/load transaction recording
+- `/settings` - editable local settings, hardware placeholders, system logs, and about panel
+
+## Local Database
+
+Database name: `storemate_pos.db`
+
+Created tables:
+
+- `users`
+- `shifts`
+- `cash_drawer_movements`
+- `products`
+- `categories`
+- `inventory_batches`
+- `stock_movements`
+- `suppliers`
+- `deliveries`
+- `delivery_items`
+- `sales`
+- `sale_items`
+- `payments`
+- `held_transactions`
+- `promotions`
+- `prepaid_transactions`
+- `audit_logs`
+- `app_settings`
+
+Database migrations are versioned through `PRAGMA user_version`.
+
+## Project Structure
+
+```text
+app/
+  _layout.tsx
+  login.tsx
+  shift-start.tsx
+  shift-summary.tsx
+  index.tsx
+  payment.tsx
+  cash-payment.tsx
+  payment-success.tsx
+  hold-transactions.tsx
+  inventory.tsx
+  product-details.tsx
+  product-form.tsx
+  adjust-stock.tsx
+  reports.tsx
+  sales-report-details.tsx
+  stock-in.tsx
+  suppliers.tsx
+  promotions.tsx
+  prepaid.tsx
+  settings.tsx
+  users.tsx
+components/
+  auth/
+  layout/
+  ui/
+constants/
+  theme.ts
+lib/
+  auth/
+  database/
+  domain/
+  store/
+tests/
+  domain.test.ts
+```
+
+## Notes
+
+- This app is intentionally offline-only for the current version.
+- Reports are calculated from completed local sales in SQLite; empty ranges show zero-value KPIs and empty states.
+- Promotion rules are managed locally but are not automatically applied to POS totals yet.
+- Returns and POS discount automation are still minimal and will be expanded in later phases.
+- Prepaid/load records are local-only and do not call provider APIs.
+- The integrity check verifies SQLite `PRAGMA integrity_check` and `PRAGMA foreign_key_check` locally.
+- Supplier editing and product deactivation are not exposed yet.
