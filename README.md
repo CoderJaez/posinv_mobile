@@ -44,7 +44,7 @@ Implemented:
 - Cash variance
 - Cash in/out tracking
 - Audit log writes for login, failed login, shift start, shift end, and cash drawer movements
-- Users & Shift Management screen with user and recent shift tables
+- Admin-only User Management screen with user and recent shift tables
 
 ### Phase 3: POS Checkout
 
@@ -97,6 +97,9 @@ Implemented:
   - Unit cost
   - Opening stock
   - Reorder level
+- Local product image upload from the tablet photo library
+- Product images copied into app document storage and referenced by SQLite
+- Product image display on Product Details, POS product grid, and cart rows
 - Stock adjustment screen
 - Positive and negative adjustments
 - Batch creation/update for positive adjustments
@@ -178,6 +181,8 @@ Implemented:
 - Branch settings
 - System logs from `audit_logs`
 - About system panel with local database counts
+- Admin-only user create/edit/deactivate/reset-PIN workflow
+- Last active admin protection
 
 ### Phase 7: Polish, Testing & Finalization
 
@@ -211,7 +216,7 @@ Implemented:
 Role access:
 
 - Cashier: POS, shift flow, prepaid/load recording, inventory visibility
-- Supervisor: cashier access plus reports, users/shifts, suppliers, stock-in, promotions
+- Supervisor: cashier access plus reports, suppliers, stock-in, and promotions
 - Admin: all screens including settings
 
 ## Run Locally
@@ -256,7 +261,7 @@ npm test
 - `/product-details` - product price, stock, batch, expiry, and movement details
 - `/product-form` - add or edit product master data
 - `/adjust-stock` - manual stock adjustment
-- `/users` - users and recent shifts management
+- `/users` - admin-only user management and recent shift records
 - `/reports` - local sales reports dashboard with KPIs, chart, top items, and payment breakdown
 - `/sales-report-details` - detailed sales report with daily, weekly, and monthly filters
 - `/stock-in` - supplier delivery recording with automatic stock increase

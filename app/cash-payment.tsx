@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { Controller, useForm } from 'react-hook-form';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { AppShell } from '@/components/layout/AppShell';
@@ -14,7 +14,7 @@ import { getOpenShiftForUser } from '@/lib/database/shifts';
 import { calculateCashChange } from '@/lib/domain/sales';
 import { formatCurrency } from '@/lib/format';
 import { useAppStore } from '@/lib/store/app-store';
-import { useCartStore } from '@/lib/store/cart-store';
+import { getCartTotals, useCartStore } from '@/lib/store/cart-store';
 
 type CashPaymentForm = {
   amountGiven: string;
@@ -29,7 +29,7 @@ export default function CashPaymentScreen() {
   const items = useCartStore((state) => state.items);
   const heldTransactionId = useCartStore((state) => state.heldTransactionId);
   const clearCart = useCartStore((state) => state.clearCart);
-  const totals = useCartStore((state) => state.getTotals());
+  const totals = useMemo(() => getCartTotals(items), [items]);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const {
     control,

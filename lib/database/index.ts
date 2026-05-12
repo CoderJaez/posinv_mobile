@@ -1,6 +1,12 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { DATABASE_VERSION, phase2MigrationSql, phase6MigrationSql, schemaSql } from './schema';
+import {
+  DATABASE_VERSION,
+  phase2MigrationSql,
+  phase6MigrationSql,
+  productImageMigrationSql,
+  schemaSql,
+} from './schema';
 import { seedDatabase } from './seed';
 
 export const DATABASE_NAME = 'storemate_pos.db';
@@ -26,6 +32,14 @@ export async function initializeDatabase(db: SQLiteDatabase) {
 
   if (currentVersion < 3) {
     await db.execAsync(phase6MigrationSql);
+    await db.execAsync('PRAGMA user_version = 3;');
+  }
+
+  if (currentVersion > 0 && currentVersion < 4) {
+    await db.execAsync(productImageMigrationSql);
+  }
+
+  if (currentVersion < 4) {
     await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION};`);
   }
 }

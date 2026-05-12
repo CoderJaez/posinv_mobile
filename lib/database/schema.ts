@@ -1,4 +1,4 @@
-export const DATABASE_VERSION = 3;
+export const DATABASE_VERSION = 4;
 
 export const seedPinHashes = {
   '1234': 'sha256:7c945c5f416ccab502046c840c08f67d5aa1dac293641dd4574d84cc01998146',
@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS products (
   current_stock INTEGER NOT NULL DEFAULT 0,
   reorder_level INTEGER NOT NULL DEFAULT 0,
   image_color TEXT NOT NULL DEFAULT '#E6F7EE',
+  image_uri TEXT,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -371,4 +372,8 @@ WHERE NOT EXISTS (SELECT 1 FROM promotions WHERE name = 'P20 Off P200');
 
 CREATE INDEX IF NOT EXISTS idx_promotions_status ON promotions(status);
 CREATE INDEX IF NOT EXISTS idx_prepaid_created_at ON prepaid_transactions(created_at);
+`;
+
+export const productImageMigrationSql = `
+ALTER TABLE products ADD COLUMN image_uri TEXT;
 `;

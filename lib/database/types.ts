@@ -22,6 +22,7 @@ export type ProductListItem = {
   reorder_level: number;
   nearest_expiry: string | null;
   image_color: string;
+  image_uri: string | null;
 };
 
 export type ProductDetails = ProductListItem & {
@@ -142,6 +143,7 @@ export type CartItemSnapshot = {
   quantity: number;
   unitPrice: number;
   imageColor: string;
+  imageUri: string | null;
   currentStock: number;
 };
 

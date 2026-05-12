@@ -1,4 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -9,6 +8,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
+import { ProductImage } from '@/components/ui/ProductImage';
 import { Table, type TableColumn } from '@/components/ui/Table';
 import { palette, spacing } from '@/constants/theme';
 import {
@@ -121,9 +121,11 @@ export default function ProductDetailsScreen() {
         <>
           <View style={styles.topGrid}>
             <Card style={styles.productCard}>
-              <View style={[styles.productArt, { backgroundColor: product.image_color }]}>
-                <Ionicons name="cube-outline" size={58} color={palette.ink} />
-              </View>
+              <ProductImage
+                imageColor={product.image_color}
+                imageUri={product.image_uri}
+                size={120}
+              />
               <View style={styles.productCopy}>
                 <Text style={styles.productName}>{product.name}</Text>
                 <Text style={styles.mutedText}>Barcode: {product.barcode || '-'}</Text>
@@ -194,13 +196,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexGrow: 1,
     gap: spacing.md,
-  },
-  productArt: {
-    alignItems: 'center',
-    borderRadius: 8,
-    height: 120,
-    justifyContent: 'center',
-    width: 120,
   },
   productCopy: {
     flex: 1,

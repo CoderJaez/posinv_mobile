@@ -9,6 +9,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { ProductImage } from '@/components/ui/ProductImage';
 import { palette, spacing } from '@/constants/theme';
 import {
   createProduct,
@@ -18,6 +19,7 @@ import {
 } from '@/lib/database/inventory';
 import { getCategories } from '@/lib/database/queries';
 import type { Category } from '@/lib/database/types';
+import { pickAndStoreProductImage } from '@/lib/media/product-images';
 import { useAppStore } from '@/lib/store/app-store';
 
 type ProductFormValues = {
@@ -32,6 +34,7 @@ type ProductFormValues = {
   currentStock: string;
   reorderLevel: string;
   imageColor: string;
+  imageUri: string;
 };
 
 export default function ProductFormScreen() {
@@ -62,10 +65,13 @@ export default function ProductFormScreen() {
       currentStock: '0',
       reorderLevel: '0',
       imageColor: '#E6F7EE',
+      imageUri: '',
     },
   });
 
   const selectedCategoryId = Number(watch('categoryId'));
+  const selectedImageColor = watch('imageColor');
+  const selectedImageUri = watch('imageUri');
 
   useEffect(() => {
     let mounted = true;
@@ -95,6 +101,7 @@ export default function ProductFormScreen() {
           setValue('currentStock', String(product.current_stock));
           setValue('reorderLevel', String(product.reorder_level));
           setValue('imageColor', product.image_color);
+          setValue('imageUri', product.image_uri ?? '');
         }
       }
     }
@@ -125,6 +132,7 @@ export default function ProductFormScreen() {
       currentStock: Number(values.currentStock || 0),
       reorderLevel: Number(values.reorderLevel || 0),
       imageColor: values.imageColor || '#E6F7EE',
+      imageUri: values.imageUri || null,
     };
 
     try {
@@ -155,6 +163,45 @@ export default function ProductFormScreen() {
       actions={<Button title="Back" variant="secondary" icon="arrow-back" onPress={() => router.back()} />}>
       <RequireRole roles={['supervisor', 'admin']}>
         <Card style={styles.card}>
+          <View style={styles.imageBlock}>
+            <ProductImage
+              imageColor={selectedImageColor || '#E6F7EE'}
+              imageUri={selectedImageUri || null}
+              size={118}
+            />
+            <View style={styles.imageActions}>
+              <Text style={styles.blockLabel}>Product Image</Text>
+              <Text style={styles.helperText}>
+                Upload a local product photo for the POS grid and product details.
+              </Text>
+              <View style={styles.buttonRow}>
+                <Button
+                  title="Upload Image"
+                  icon="image-outline"
+                  onPress={async () => {
+                    try {
+                      const imageUri = await pickAndStoreProductImage();
+                      if (imageUri) {
+                        setValue('imageUri', imageUri);
+                        setMessage(null);
+                      }
+                    } catch (error) {
+                      setMessage(error instanceof Error ? error.message : 'Unable to upload image.');
+                    }
+                  }}
+                />
+                {selectedImageUri ? (
+                  <Button
+                    title="Remove"
+                    variant="secondary"
+                    icon="trash-outline"
+                    onPress={() => setValue('imageUri', '')}
+                  />
+                ) : null}
+              </View>
+            </View>
+          </View>
+
           <View style={styles.grid}>
             <Controller
               control={control}
@@ -285,6 +332,19 @@ export default function ProductFormScreen() {
                 )}
               />
             ) : null}
+            <Controller
+              control={control}
+              name="imageColor"
+              render={({ field: { onBlur, onChange, value } }) => (
+                <Input
+                  label="Fallback Image Color"
+                  onBlur={onBlur}
+                  onChangeText={onChange}
+                  value={value}
+                  containerStyle={styles.input}
+                />
+              )}
+            />
           </View>
 
           <View style={styles.categoryBlock}>
@@ -342,6 +402,29 @@ const styles = StyleSheet.create({
   input: {
     flexBasis: 250,
     flexGrow: 1,
+  },
+  imageBlock: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+  },
+  imageActions: {
+    flex: 1,
+    gap: spacing.xs,
+    minWidth: 260,
+  },
+  helperText: {
+    color: palette.inkMuted,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 19,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
   },
   categoryBlock: {
     gap: spacing.sm,

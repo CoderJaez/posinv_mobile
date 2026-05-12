@@ -39,7 +39,13 @@
           }
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow StoreMate to select product photos for offline inventory records."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

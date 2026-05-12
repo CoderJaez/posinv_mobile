@@ -16,6 +16,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { ProductImage } from '@/components/ui/ProductImage';
 import { palette, radii, spacing } from '@/constants/theme';
 import { formatRole } from '@/lib/auth/roles';
 import { getCategories, getProducts } from '@/lib/database/queries';
@@ -211,9 +212,12 @@ export default function PosCheckoutScreen() {
                     outOfStock && styles.productCardDisabled,
                     pressed && styles.productCardPressed,
                   ]}>
-                  <View style={[styles.productArt, { backgroundColor: product.image_color }]}>
-                    <Ionicons name="cube-outline" size={28} color={palette.ink} />
-                  </View>
+                  <ProductImage
+                    imageColor={product.image_color}
+                    imageUri={product.image_uri}
+                    size={58}
+                    style={styles.productArt}
+                  />
                   <Text style={styles.productName} numberOfLines={2}>
                     {product.name}
                   </Text>
@@ -242,7 +246,12 @@ export default function PosCheckoutScreen() {
             ) : (
               cartItems.map((item) => (
                 <View key={item.productId} style={styles.cartItem}>
-                  <View style={[styles.cartArt, { backgroundColor: item.imageColor }]} />
+                  <ProductImage
+                    imageColor={item.imageColor}
+                    imageUri={item.imageUri}
+                    size={38}
+                    style={styles.cartArt}
+                  />
                   <View style={styles.cartCopy}>
                     <Text style={styles.cartName}>{item.name}</Text>
                     <Text style={styles.cartMeta}>

@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import type { ComponentProps } from 'react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppShell } from '@/components/layout/AppShell';
@@ -14,7 +14,7 @@ import { completeSale } from '@/lib/database/sales';
 import type { PaymentMethod } from '@/lib/database/types';
 import { formatCurrency } from '@/lib/format';
 import { useAppStore } from '@/lib/store/app-store';
-import { useCartStore } from '@/lib/store/cart-store';
+import { getCartTotals, useCartStore } from '@/lib/store/cart-store';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
@@ -35,7 +35,7 @@ export default function PaymentScreen() {
   const items = useCartStore((state) => state.items);
   const heldTransactionId = useCartStore((state) => state.heldTransactionId);
   const clearCart = useCartStore((state) => state.clearCart);
-  const totals = useCartStore((state) => state.getTotals());
+  const totals = useMemo(() => getCartTotals(items), [items]);
   const [processingMethod, setProcessingMethod] = useState<PaymentMethod | null>(null);
   const [error, setError] = useState<string | null>(null);
 

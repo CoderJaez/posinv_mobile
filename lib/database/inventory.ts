@@ -22,6 +22,7 @@ export type ProductFormInput = {
   currentStock: number;
   reorderLevel: number;
   imageColor?: string;
+  imageUri?: string | null;
 };
 
 export type StockAdjustmentInput = {
@@ -76,6 +77,7 @@ export async function getProductById(db: SQLiteDatabase, productId: number) {
        products.current_stock,
        products.reorder_level,
        products.image_color,
+       products.image_uri,
        products.is_active,
        products.created_at,
        products.updated_at,
@@ -142,8 +144,8 @@ export async function createProduct(db: SQLiteDatabase, input: ProductFormInput,
   await db.withTransactionAsync(async () => {
     const result = await db.runAsync(
       `INSERT INTO products
-        (name, sku, barcode, category_id, unit, regular_price, promo_price, unit_cost, current_stock, reorder_level, image_color)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (name, sku, barcode, category_id, unit, regular_price, promo_price, unit_cost, current_stock, reorder_level, image_color, image_uri)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.name.trim(),
       input.sku.trim(),
       input.barcode?.trim() || null,
@@ -154,7 +156,8 @@ export async function createProduct(db: SQLiteDatabase, input: ProductFormInput,
       input.unitCost,
       input.currentStock,
       input.reorderLevel,
-      input.imageColor || '#E6F7EE'
+      input.imageColor || '#E6F7EE',
+      input.imageUri?.trim() || null
     );
 
     productId = result.lastInsertRowId;
@@ -218,6 +221,7 @@ export async function updateProduct(
            unit_cost = ?,
            reorder_level = ?,
            image_color = ?,
+           image_uri = ?,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       input.name.trim(),
@@ -230,6 +234,7 @@ export async function updateProduct(
       input.unitCost,
       input.reorderLevel,
       input.imageColor || '#E6F7EE',
+      input.imageUri?.trim() || null,
       productId
     );
 
@@ -263,6 +268,7 @@ export async function adjustProductStock(db: SQLiteDatabase, input: StockAdjustm
        products.current_stock,
        products.reorder_level,
        products.image_color,
+       products.image_uri,
        MIN(inventory_batches.expiry_date) as nearest_expiry
      FROM products
      INNER JOIN categories ON categories.id = products.category_id

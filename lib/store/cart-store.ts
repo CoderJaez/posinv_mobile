@@ -24,6 +24,7 @@ function toCartItem(product: ProductListItem): CartItemSnapshot {
     quantity: 1,
     unitPrice: product.promo_price ?? product.regular_price,
     imageColor: product.image_color,
+    imageUri: product.image_uri,
     currentStock: product.current_stock,
   };
 }

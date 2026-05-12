@@ -25,6 +25,7 @@ export async function getProducts(db: SQLiteDatabase) {
        products.current_stock,
        products.reorder_level,
        products.image_color,
+       products.image_uri,
        MIN(inventory_batches.expiry_date) as nearest_expiry
      FROM products
      INNER JOIN categories ON categories.id = products.category_id

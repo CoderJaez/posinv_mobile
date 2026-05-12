@@ -1,25 +1,32 @@
-import { Ionicons } from '@expo/vector-icons';
-import type { ComponentProps } from 'react';
-import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { usePathname, useRouter } from 'expo-router';
+import { Ionicons } from "@expo/vector-icons";
+import { usePathname, useRouter } from "expo-router";
+import type { ComponentProps } from "react";
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 
-import { palette, radii, spacing } from '@/constants/theme';
-import { useAppStore } from '@/lib/store/app-store';
+import { palette, radii, spacing } from "@/constants/theme";
+import { useAppStore } from "@/lib/store/app-store";
+import { FlatList } from "react-native-gesture-handler";
 
-type IconName = ComponentProps<typeof Ionicons>['name'];
+type IconName = ComponentProps<typeof Ionicons>["name"];
 
 const navItems: { label: string; href: string; icon: IconName }[] = [
-  { label: 'POS', href: '/', icon: 'storefront-outline' },
-  { label: 'Held Orders', href: '/hold-transactions', icon: 'archive-outline' },
-  { label: 'Shift Summary', href: '/shift-summary', icon: 'wallet-outline' },
-  { label: 'Inventory', href: '/inventory', icon: 'file-tray-stacked-outline' },
-  { label: 'Reports', href: '/reports', icon: 'bar-chart-outline' },
-  { label: 'Customers', href: '/customers', icon: 'people-outline' },
-  { label: 'Suppliers', href: '/suppliers', icon: 'cube-outline' },
-  { label: 'Promotions', href: '/promotions', icon: 'pricetag-outline' },
-  { label: 'Prepaid / Load', href: '/prepaid', icon: 'phone-portrait-outline' },
-  { label: 'Users & Shifts', href: '/users', icon: 'person-circle-outline' },
-  { label: 'Settings', href: '/settings', icon: 'settings-outline' },
+  { label: "POS", href: "/", icon: "storefront-outline" },
+  { label: "Held Orders", href: "/hold-transactions", icon: "archive-outline" },
+  { label: "Shift Summary", href: "/shift-summary", icon: "wallet-outline" },
+  { label: "Inventory", href: "/inventory", icon: "file-tray-stacked-outline" },
+  { label: "Reports", href: "/reports", icon: "bar-chart-outline" },
+  { label: "Customers", href: "/customers", icon: "people-outline" },
+  { label: "Suppliers", href: "/suppliers", icon: "cube-outline" },
+  { label: "Promotions", href: "/promotions", icon: "pricetag-outline" },
+  // { label: "Users & Shifts", href: "/users", icon: "person-circle-outline" },
+  // { label: "Prepaid", href: "/prepaid", icon: "card-outline" },
+  { label: "Settings", href: "/settings", icon: "settings-outline" },
 ];
 
 export function Sidebar() {
@@ -47,45 +54,63 @@ export function Sidebar() {
       </View>
 
       <View style={styles.nav}>
-        {navItems.map((item) => {
-          const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
+        <FlatList
+          data={navItems}
+          keyExtractor={(item) => item.href}
+          renderItem={({ item }) => {
+            const active =
+              item.href === "/"
+                ? pathname === "/"
+                : pathname.startsWith(item.href);
 
-          return (
-            <Pressable
-              accessibilityRole="link"
-              key={item.href}
-              onPress={() => router.push(item.href as never)}
-              style={({ pressed }) => [
-                styles.navItem,
-                compact && styles.navItemCompact,
-                active && styles.navItemActive,
-                pressed && styles.navItemPressed,
-              ]}>
-              <Ionicons name={item.icon} size={20} color={palette.surface} />
-              {!compact ? <Text style={styles.navText}>{item.label}</Text> : null}
-            </Pressable>
-          );
-        })}
+            return (
+              <Pressable
+                accessibilityRole="link"
+                onPress={() => router.push(item.href as never)}
+                style={({ pressed }) => [
+                  styles.navItem,
+                  compact && styles.navItemCompact,
+                  active && styles.navItemActive,
+                  pressed && styles.navItemPressed,
+                ]}
+              >
+                <Ionicons name={item.icon} size={20} color={palette.surface} />
+                {!compact ? (
+                  <Text style={styles.navText}>{item.label}</Text>
+                ) : null}
+              </Pressable>
+            );
+          }}
+        />
       </View>
 
       <View style={styles.onlineCard}>
         <View style={styles.onlineRow}>
           <View style={styles.onlineDot} />
-          {!compact ? <Text style={styles.onlineText}>Offline Ready</Text> : null}
+          {!compact ? (
+            <Text style={styles.onlineText}>Offline Ready</Text>
+          ) : null}
         </View>
         {!compact ? (
           <>
-            <Text style={styles.syncLabel}>{currentUser?.full_name ?? 'No user'}</Text>
+            <Text style={styles.syncLabel}>
+              {currentUser?.full_name ?? "No user"}
+            </Text>
             <Text style={styles.syncText}>
-              {currentShift ? `Shift #${currentShift.id}` : 'No active shift'}
+              {currentShift ? `Shift #${currentShift.id}` : "No active shift"}
             </Text>
             <Pressable
               onPress={async () => {
                 await clearSession();
-                router.replace('/login' as never);
+                router.replace("/login" as never);
               }}
-              style={styles.logoutButton}>
-              <Ionicons name="log-out-outline" size={16} color={palette.surface} />
+              style={styles.logoutButton}
+            >
+              <Ionicons
+                name="log-out-outline"
+                size={16}
+                color={palette.surface}
+              />
               <Text style={styles.logoutText}>Logout</Text>
             </Pressable>
           </>
@@ -98,23 +123,23 @@ export function Sidebar() {
 const styles = StyleSheet.create({
   sidebar: {
     backgroundColor: palette.sidebar,
-    borderRightColor: '#0C344C',
+    borderRightColor: "#0C344C",
     borderRightWidth: 1,
     gap: spacing.lg,
     padding: spacing.md,
   },
   brand: {
-    alignItems: 'center',
-    flexDirection: 'row',
+    alignItems: "center",
+    flexDirection: "row",
     gap: spacing.sm,
     minHeight: 56,
   },
   logoMark: {
-    alignItems: 'center',
+    alignItems: "center",
     backgroundColor: palette.primary,
     borderRadius: radii.sm,
     height: 38,
-    justifyContent: 'center',
+    justifyContent: "center",
     width: 38,
   },
   brandTextGroup: {
@@ -124,13 +149,13 @@ const styles = StyleSheet.create({
   brandTitle: {
     color: palette.surface,
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: 0,
   },
   brandSubtitle: {
-    color: '#B8C7D1',
+    color: "#B8C7D1",
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: "600",
     letterSpacing: 0,
   },
   nav: {
@@ -138,15 +163,15 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   navItem: {
-    alignItems: 'center',
+    alignItems: "center",
     borderRadius: radii.sm,
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: spacing.sm,
     minHeight: 44,
     paddingHorizontal: spacing.sm,
   },
   navItemCompact: {
-    justifyContent: 'center',
+    justifyContent: "center",
     paddingHorizontal: 0,
   },
   navItemActive: {
@@ -158,12 +183,12 @@ const styles = StyleSheet.create({
   navText: {
     color: palette.surface,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: "800",
     letterSpacing: 0,
   },
   onlineCard: {
     backgroundColor: palette.sidebarSurface,
-    borderColor: '#16445C',
+    borderColor: "#16445C",
     borderRadius: radii.sm,
     borderWidth: 1,
     gap: spacing.xxs,
@@ -171,8 +196,8 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
   },
   onlineRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
+    alignItems: "center",
+    flexDirection: "row",
     gap: spacing.xs,
   },
   onlineDot: {
@@ -184,25 +209,25 @@ const styles = StyleSheet.create({
   onlineText: {
     color: palette.surface,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   syncLabel: {
-    color: '#B8C7D1',
+    color: "#B8C7D1",
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: "700",
     marginTop: spacing.xs,
   },
   syncText: {
     color: palette.surface,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   logoutButton: {
-    alignItems: 'center',
-    borderColor: '#24566D',
+    alignItems: "center",
+    borderColor: "#24566D",
     borderRadius: radii.sm,
     borderWidth: 1,
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: spacing.xs,
     marginTop: spacing.xs,
     minHeight: 32,
@@ -211,6 +236,6 @@ const styles = StyleSheet.create({
   logoutText: {
     color: palette.surface,
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: "800",
   },
 });
