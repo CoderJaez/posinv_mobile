@@ -47,6 +47,7 @@ export default function LoginScreen() {
     handleSubmit,
     formState: { errors, isSubmitting },
     reset,
+    resetField,
   } = useForm<LoginForm>({
     defaultValues: { pin: "" },
   });
@@ -125,9 +126,9 @@ export default function LoginScreen() {
                   <Pressable
                     key={user.id}
                     onPress={() => {
+                      resetField("pin");
                       setSelectedUserId(user.id);
                       setAuthError(null);
-                      reset({ pin: "" });
                     }}
                     style={[styles.userCard, active && styles.userCardActive]}
                   >
@@ -169,15 +170,7 @@ export default function LoginScreen() {
             rules={{
               minLength: {
                 value: 4,
-                message: "PIN must be at least 4 digits.",
-              },
-              maxLength: {
-                value: 6,
-                message: "PIN must be no more than 6 digits.",
-              },
-              pattern: {
-                value: /^\d+$/,
-                message: "PIN must contain only numbers.",
+                message: "PIN is required.",
               },
               required: "PIN is required.",
             }}
@@ -220,6 +213,7 @@ function PinPad({ field }: { field: ControllerRenderProps<LoginForm, "pin"> }) {
   ];
 
   function pressKey(key: string) {
+    // console.log("Pressed key:", key, "Current value:", value.length);
     if (key === "clear") {
       field.onChange("");
       return;
@@ -230,7 +224,7 @@ function PinPad({ field }: { field: ControllerRenderProps<LoginForm, "pin"> }) {
       return;
     }
 
-    if (value.length < 6) {
+    if (value.length < 4) {
       field.onChange(`${value}${key}`);
     }
   }
