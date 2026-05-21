@@ -1,4 +1,4 @@
-export const DATABASE_VERSION = 4;
+export const DATABASE_VERSION = 5;
 
 export const seedPinHashes = {
   '1234': 'sha256:7c945c5f416ccab502046c840c08f67d5aa1dac293641dd4574d84cc01998146',
@@ -171,6 +171,8 @@ CREATE TABLE IF NOT EXISTS sale_items (
   sku TEXT NOT NULL,
   quantity INTEGER NOT NULL,
   unit_price REAL NOT NULL,
+  original_unit_price REAL,
+  price_override_reason TEXT,
   discount_amount REAL NOT NULL DEFAULT 0,
   line_total REAL NOT NULL,
   FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
@@ -187,6 +189,45 @@ CREATE TABLE IF NOT EXISTS payments (
   reference_number TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS sale_adjustments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sale_id INTEGER NOT NULL,
+  sale_item_id INTEGER,
+  product_id INTEGER NOT NULL,
+  adjustment_type TEXT NOT NULL CHECK (adjustment_type IN ('quantity_update', 'remove_item')),
+  previous_quantity INTEGER NOT NULL,
+  new_quantity INTEGER NOT NULL,
+  quantity_delta INTEGER NOT NULL,
+  previous_unit_price REAL NOT NULL,
+  new_unit_price REAL NOT NULL,
+  amount_delta REAL NOT NULL,
+  restock INTEGER NOT NULL DEFAULT 0,
+  reason TEXT NOT NULL,
+  created_by INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (sale_id) REFERENCES sales(id),
+  FOREIGN KEY (sale_item_id) REFERENCES sale_items(id),
+  FOREIGN KEY (product_id) REFERENCES products(id),
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS print_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sale_id INTEGER,
+  receipt_number TEXT,
+  printer_name TEXT,
+  printer_address TEXT,
+  connection_type TEXT NOT NULL DEFAULT 'bluetooth',
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'sent', 'failed')),
+  payload_text TEXT NOT NULL,
+  error_message TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  printed_at TEXT,
+  FOREIGN KEY (sale_id) REFERENCES sales(id),
+  FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS held_transactions (
@@ -261,6 +302,9 @@ CREATE INDEX IF NOT EXISTS idx_stock_movements_product ON stock_movements(produc
 CREATE INDEX IF NOT EXISTS idx_sales_completed_at ON sales(completed_at);
 CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);
 CREATE INDEX IF NOT EXISTS idx_payments_sale ON payments(sale_id);
+CREATE INDEX IF NOT EXISTS idx_sale_adjustments_sale ON sale_adjustments(sale_id);
+CREATE INDEX IF NOT EXISTS idx_sale_adjustments_created_at ON sale_adjustments(created_at);
+CREATE INDEX IF NOT EXISTS idx_print_jobs_sale ON print_jobs(sale_id);
 CREATE INDEX IF NOT EXISTS idx_held_transactions_status ON held_transactions(status);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
 `;
@@ -376,4 +420,68 @@ CREATE INDEX IF NOT EXISTS idx_prepaid_created_at ON prepaid_transactions(create
 
 export const productImageMigrationSql = `
 ALTER TABLE products ADD COLUMN image_uri TEXT;
+`;
+
+export const salesAdjustmentsAndPrintMigrationSql = `
+ALTER TABLE sale_items ADD COLUMN original_unit_price REAL;
+ALTER TABLE sale_items ADD COLUMN price_override_reason TEXT;
+
+UPDATE sale_items
+SET original_unit_price = unit_price
+WHERE original_unit_price IS NULL;
+
+CREATE TABLE IF NOT EXISTS sale_adjustments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sale_id INTEGER NOT NULL,
+  sale_item_id INTEGER,
+  product_id INTEGER NOT NULL,
+  adjustment_type TEXT NOT NULL CHECK (adjustment_type IN ('quantity_update', 'remove_item')),
+  previous_quantity INTEGER NOT NULL,
+  new_quantity INTEGER NOT NULL,
+  quantity_delta INTEGER NOT NULL,
+  previous_unit_price REAL NOT NULL,
+  new_unit_price REAL NOT NULL,
+  amount_delta REAL NOT NULL,
+  restock INTEGER NOT NULL DEFAULT 0,
+  reason TEXT NOT NULL,
+  created_by INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (sale_id) REFERENCES sales(id),
+  FOREIGN KEY (sale_item_id) REFERENCES sale_items(id),
+  FOREIGN KEY (product_id) REFERENCES products(id),
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS print_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sale_id INTEGER,
+  receipt_number TEXT,
+  printer_name TEXT,
+  printer_address TEXT,
+  connection_type TEXT NOT NULL DEFAULT 'bluetooth',
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'sent', 'failed')),
+  payload_text TEXT NOT NULL,
+  error_message TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  printed_at TEXT,
+  FOREIGN KEY (sale_id) REFERENCES sales(id),
+  FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+INSERT OR IGNORE INTO app_settings (key, value)
+VALUES ('printer_connection_type', 'bluetooth');
+
+INSERT OR IGNORE INTO app_settings (key, value)
+VALUES ('printer_name', '');
+
+INSERT OR IGNORE INTO app_settings (key, value)
+VALUES ('printer_address', '');
+
+INSERT OR IGNORE INTO app_settings (key, value)
+VALUES ('printer_paper_width', '58mm');
+
+CREATE INDEX IF NOT EXISTS idx_sale_adjustments_sale ON sale_adjustments(sale_id);
+CREATE INDEX IF NOT EXISTS idx_sale_adjustments_created_at ON sale_adjustments(created_at);
+CREATE INDEX IF NOT EXISTS idx_print_jobs_sale ON print_jobs(sale_id);
 `;

@@ -26,34 +26,6 @@ const emptySummary: ReportSummary = {
   net_sales: 0,
 };
 
-const saleColumns: TableColumn<SalesReportRow>[] = [
-  { key: 'receipt', title: 'Receipt', accessor: 'receipt_number', width: 160 },
-  {
-    key: 'date',
-    title: 'Completed',
-    width: 170,
-    render: (sale) => <Text style={styles.tableText}>{formatDateTime(sale.completed_at)}</Text>,
-  },
-  { key: 'cashier', title: 'Cashier', accessor: 'cashier_name', width: 160 },
-  { key: 'items', title: 'Items', accessor: 'item_count', width: 80, align: 'right' },
-  { key: 'payments', title: 'Payment', accessor: 'payment_methods', width: 130 },
-  { key: 'status', title: 'Status', accessor: 'status', width: 120 },
-  {
-    key: 'discounts',
-    title: 'Discount',
-    width: 120,
-    align: 'right',
-    render: (sale) => <Text style={styles.tableText}>{formatCurrency(sale.discount_total)}</Text>,
-  },
-  {
-    key: 'net',
-    title: 'Net Sales',
-    width: 120,
-    align: 'right',
-    render: (sale) => <Text style={styles.tableText}>{formatCurrency(sale.net_sales)}</Text>,
-  },
-];
-
 export default function SalesReportDetailsScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
@@ -65,6 +37,58 @@ export default function SalesReportDetailsScreen() {
   const [summary, setSummary] = useState<ReportSummary>(emptySummary);
   const [rows, setRows] = useState<SalesReportRow[]>([]);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const saleColumns: TableColumn<SalesReportRow>[] = [
+    { key: 'receipt', title: 'Receipt', accessor: 'receipt_number', width: 160 },
+    {
+      key: 'date',
+      title: 'Completed',
+      width: 170,
+      render: (sale) => <Text style={styles.tableText}>{formatDateTime(sale.completed_at)}</Text>,
+    },
+    { key: 'cashier', title: 'Cashier', accessor: 'cashier_name', width: 160 },
+    { key: 'items', title: 'Items', accessor: 'item_count', width: 80, align: 'right' },
+    {
+      key: 'adjustments',
+      title: 'Adjust',
+      accessor: 'adjustment_count',
+      width: 90,
+      align: 'right',
+    },
+    { key: 'payments', title: 'Payment', accessor: 'payment_methods', width: 130 },
+    { key: 'status', title: 'Status', accessor: 'status', width: 120 },
+    {
+      key: 'discounts',
+      title: 'Discount',
+      width: 120,
+      align: 'right',
+      render: (sale) => <Text style={styles.tableText}>{formatCurrency(sale.discount_total)}</Text>,
+    },
+    {
+      key: 'net',
+      title: 'Net Sales',
+      width: 120,
+      align: 'right',
+      render: (sale) => <Text style={styles.tableText}>{formatCurrency(sale.net_sales)}</Text>,
+    },
+    {
+      key: 'action',
+      title: '',
+      width: 110,
+      render: (sale) => (
+        <Button
+          title="Adjust"
+          size="sm"
+          variant="outline"
+          onPress={() =>
+            router.push({
+              pathname: '/sale-adjustment',
+              params: { saleId: String(sale.id) },
+            } as never)
+          }
+        />
+      ),
+    },
+  ];
 
   useEffect(() => {
     let mounted = true;

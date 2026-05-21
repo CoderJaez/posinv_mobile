@@ -9,6 +9,7 @@ type CartState = {
   addProduct: (product: ProductListItem) => void;
   incrementItem: (productId: number) => void;
   decrementItem: (productId: number) => void;
+  updateItemPrice: (productId: number, unitPrice: number, reason?: string | null) => void;
   removeItem: (productId: number) => void;
   clearCart: () => void;
   replaceCart: (items: CartItemSnapshot[], heldTransactionId?: number | null) => void;
@@ -23,6 +24,8 @@ function toCartItem(product: ProductListItem): CartItemSnapshot {
     barcode: product.barcode,
     quantity: 1,
     unitPrice: product.promo_price ?? product.regular_price,
+    baseUnitPrice: product.promo_price ?? product.regular_price,
+    priceOverrideReason: null,
     imageColor: product.image_color,
     imageUri: product.image_uri,
     currentStock: product.current_stock,
@@ -74,6 +77,19 @@ export const useCartStore = create<CartState>((set, get) => ({
         )
         .filter((item) => item.quantity > 0),
     })),
+  updateItemPrice: (productId, unitPrice, reason = null) =>
+    set((state) => ({
+      items: state.items.map((item) =>
+        item.productId === productId
+          ? {
+              ...item,
+              unitPrice,
+              priceOverrideReason:
+                unitPrice === item.baseUnitPrice ? null : reason?.trim() || 'Manual price override',
+            }
+          : item
+      ),
+    })),
   removeItem: (productId) =>
     set((state) => ({
       items: state.items.filter((item) => item.productId !== productId),
@@ -84,6 +100,8 @@ export const useCartStore = create<CartState>((set, get) => ({
       heldTransactionId,
       items: items.map((item) => ({
         ...item,
+        baseUnitPrice: item.baseUnitPrice ?? item.unitPrice,
+        priceOverrideReason: item.priceOverrideReason ?? null,
         quantity: Math.max(1, item.quantity),
       })),
     }),

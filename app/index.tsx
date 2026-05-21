@@ -16,6 +16,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
 import { ProductImage } from '@/components/ui/ProductImage';
 import { palette, radii, spacing } from '@/constants/theme';
 import { formatRole } from '@/lib/auth/roles';
@@ -35,6 +36,7 @@ export default function PosCheckoutScreen() {
   const addProduct = useCartStore((state) => state.addProduct);
   const incrementItem = useCartStore((state) => state.incrementItem);
   const decrementItem = useCartStore((state) => state.decrementItem);
+  const updateItemPrice = useCartStore((state) => state.updateItemPrice);
   const removeItem = useCartStore((state) => state.removeItem);
   const clearCart = useCartStore((state) => state.clearCart);
   const getTotals = useCartStore((state) => state.getTotals);
@@ -44,6 +46,9 @@ export default function PosCheckoutScreen() {
   const [search, setSearch] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const [holding, setHolding] = useState(false);
+  const [priceItemId, setPriceItemId] = useState<number | null>(null);
+  const [priceValue, setPriceValue] = useState('');
+  const [priceReason, setPriceReason] = useState('');
   const { width } = useWindowDimensions();
   const compact = width < 980;
   const totals = getTotals();
@@ -116,6 +121,37 @@ export default function PosCheckoutScreen() {
     }
 
     router.push('/payment' as never);
+  }
+
+  const priceItem = cartItems.find((item) => item.productId === priceItemId) ?? null;
+
+  function openPriceEditor(productId: number) {
+    const item = cartItems.find((cartItem) => cartItem.productId === productId);
+
+    if (!item) {
+      return;
+    }
+
+    setPriceItemId(productId);
+    setPriceValue(String(item.unitPrice));
+    setPriceReason(item.priceOverrideReason ?? 'Manual price adjustment');
+  }
+
+  function savePriceOverride() {
+    if (!priceItem) {
+      return;
+    }
+
+    const nextPrice = Number(priceValue);
+
+    if (!Number.isFinite(nextPrice) || nextPrice <= 0) {
+      setNotice('Adjusted price must be greater than zero.');
+      return;
+    }
+
+    updateItemPrice(priceItem.productId, nextPrice, priceReason);
+    setPriceItemId(null);
+    setNotice(`${priceItem.name} price updated.`);
   }
 
   return (
@@ -257,6 +293,9 @@ export default function PosCheckoutScreen() {
                     <Text style={styles.cartMeta}>
                       {item.quantity} x {formatCurrency(item.unitPrice)}
                     </Text>
+                    {item.priceOverrideReason ? (
+                      <Text style={styles.overrideText}>Adjusted from {formatCurrency(item.baseUnitPrice)}</Text>
+                    ) : null}
                     <View style={styles.quantityControls}>
                       <Pressable
                         onPress={() => decrementItem(item.productId)}
@@ -268,6 +307,11 @@ export default function PosCheckoutScreen() {
                         onPress={() => incrementItem(item.productId)}
                         style={styles.quantityButton}>
                         <Ionicons name="add" size={16} color={palette.ink} />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => openPriceEditor(item.productId)}
+                        style={styles.priceButton}>
+                        <Ionicons name="pricetag-outline" size={15} color={palette.primaryDark} />
                       </Pressable>
                       <Pressable
                         onPress={() => removeItem(item.productId)}
@@ -321,6 +365,46 @@ export default function PosCheckoutScreen() {
           </View>
         </Card>
       </View>
+
+      <Modal
+        visible={priceItem != null}
+        title="Adjust Item Price"
+        onClose={() => setPriceItemId(null)}
+        footer={
+          <View style={styles.modalFooter}>
+            <Button
+              title="Cancel"
+              variant="secondary"
+              onPress={() => setPriceItemId(null)}
+              style={styles.modalButton}
+            />
+            <Button
+              title="Save Price"
+              icon="save-outline"
+              onPress={savePriceOverride}
+              style={styles.modalButton}
+            />
+          </View>
+        }>
+        <View style={styles.priceEditor}>
+          <Text style={styles.editorTitle}>{priceItem?.name}</Text>
+          <Text style={styles.editorMeta}>
+            Base price: {priceItem ? formatCurrency(priceItem.baseUnitPrice) : '-'} per item
+          </Text>
+          <Input
+            label="Adjusted Unit Price"
+            keyboardType="decimal-pad"
+            value={priceValue}
+            onChangeText={setPriceValue}
+          />
+          <Input
+            label="Reason"
+            value={priceReason}
+            onChangeText={setPriceReason}
+            placeholder="Manual price adjustment, weighed item, etc."
+          />
+        </View>
+      </Modal>
     </AppShell>
   );
 }
@@ -534,6 +618,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
+  overrideText: {
+    color: palette.warning,
+    fontSize: 10,
+    fontWeight: '900',
+  },
   cartPrice: {
     color: palette.ink,
     fontSize: 12,
@@ -563,6 +652,15 @@ const styles = StyleSheet.create({
   },
   removeButton: {
     alignItems: 'center',
+    height: 28,
+    justifyContent: 'center',
+    width: 28,
+  },
+  priceButton: {
+    alignItems: 'center',
+    borderColor: palette.border,
+    borderRadius: radii.sm,
+    borderWidth: 1,
     height: 28,
     justifyContent: 'center',
     width: 28,
@@ -612,5 +710,26 @@ const styles = StyleSheet.create({
   },
   payWrap: {
     padding: spacing.md,
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    justifyContent: 'flex-end',
+  },
+  modalButton: {
+    minWidth: 140,
+  },
+  priceEditor: {
+    gap: spacing.md,
+  },
+  editorTitle: {
+    color: palette.ink,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  editorMeta: {
+    color: palette.inkMuted,
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

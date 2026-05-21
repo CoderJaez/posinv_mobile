@@ -55,6 +55,7 @@ Implemented:
 - Category filtering
 - Product search by name, SKU, or barcode
 - Add item to cart
+- Manual item price override with adjustment reason for weighed or variable-price items
 - Quantity increment/decrement
 - Remove item
 - Void current cart
@@ -71,6 +72,7 @@ Implemented:
   - Maya
   - GrabPay
 - Completed sales saved locally into `sales`, `sale_items`, and `payments`
+- Original unit price and override reason stored per sale line
 - Product stock deducted automatically on completed sale
 - Inventory batches deducted using earliest-expiry-first logic when batch rows exist
 - Stock movements written for each sold item
@@ -141,7 +143,8 @@ Implemented:
   - Cancelled transactions
   - Net sales
 - Sales report details screen
-- Completed sale row details with cashier, item count, payment methods, discounts, and net sales
+- Completed sale row details with cashier, item count, adjustment count, payment methods, discounts, and net sales
+- Returned/adjusted sale items reflected in returns and net sales metrics
 - Empty states for report ranges with no sales
 - Export report placeholder
 
@@ -175,7 +178,10 @@ Implemented:
 - General settings
 - Payment method toggles
 - Receipt settings
-- Hardware setup placeholder
+- Printing module management
+- Local printer profile for Bluetooth or system print mode
+- Receipt print jobs logged locally through `print_jobs`
+- Receipt printing through Expo's local print pipeline for paired/available receipt printers
 - Users & roles shortcut
 - Backup & sync placeholder
 - Branch settings
@@ -255,6 +261,7 @@ npm test
 - `/payment` - payment method selection
 - `/cash-payment` - cash received and change calculation
 - `/payment-success` - completed sale confirmation
+- `/sale-adjustment` - supervisor/admin sold transaction item adjustment and return logging
 - `/hold-transactions` - held cart resume and clear flow
 - `/shift-summary` - active or closed shift cash drawer summary
 - `/inventory` - product list backed by SQLite seed data
@@ -288,7 +295,9 @@ Created tables:
 - `delivery_items`
 - `sales`
 - `sale_items`
+- `sale_adjustments`
 - `payments`
+- `print_jobs`
 - `held_transactions`
 - `promotions`
 - `prepaid_transactions`
@@ -332,6 +341,7 @@ lib/
   auth/
   database/
   domain/
+  printing/
   store/
 tests/
   domain.test.ts
@@ -342,7 +352,9 @@ tests/
 - This app is intentionally offline-only for the current version.
 - Reports are calculated from completed local sales in SQLite; empty ranges show zero-value KPIs and empty states.
 - Promotion rules are managed locally but are not automatically applied to POS totals yet.
-- Returns and POS discount automation are still minimal and will be expanded in later phases.
+- Sold transaction adjustments are logged locally and can return removed quantity to stock or remove it without restocking.
+- Receipt printing uses `expo-print`, so direct Bluetooth ESC/POS discovery/write support still requires a native adapter and development build. The app stores Bluetooth printer profile details and logs every print attempt locally.
+- POS discount automation is still minimal and will be expanded in later phases.
 - Prepaid/load records are local-only and do not call provider APIs.
 - The integrity check verifies SQLite `PRAGMA integrity_check` and `PRAGMA foreign_key_check` locally.
 - Supplier editing and product deactivation are not exposed yet.

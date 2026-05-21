@@ -30,6 +30,7 @@ export default function RootLayout() {
               <Stack.Screen name="payment" />
               <Stack.Screen name="cash-payment" />
               <Stack.Screen name="payment-success" />
+              <Stack.Screen name="sale-adjustment" />
               <Stack.Screen name="hold-transactions" />
               <Stack.Screen name="inventory" />
               <Stack.Screen name="product-details" />

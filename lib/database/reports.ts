@@ -110,12 +110,22 @@ export async function getReportSummary(db: SQLiteDatabase, range: ReportRange) {
            AND sale_filter.status = 'completed'
        ), 0) as items_sold,
        COALESCE(SUM(discount_total), 0) as discounts,
+       COALESCE((
+         SELECT SUM(ABS(sale_adjustments.amount_delta))
+         FROM sale_adjustments
+         INNER JOIN sales adjustment_sale ON adjustment_sale.id = sale_adjustments.sale_id
+         WHERE adjustment_sale.completed_at >= ?
+           AND adjustment_sale.completed_at < ?
+           AND sale_adjustments.amount_delta < 0
+       ), 0) +
        COALESCE(SUM(CASE WHEN status = 'refunded' THEN total ELSE 0 END), 0) as returns,
        COALESCE(SUM(CASE WHEN status = 'voided' THEN 1 ELSE 0 END), 0) as cancelled_transactions,
        COALESCE(SUM(CASE WHEN status = 'completed' THEN net_sales ELSE 0 END), 0) as net_sales
      FROM sales
      WHERE completed_at >= ?
        AND completed_at < ?`,
+    bounds.start,
+    bounds.end,
     bounds.start,
     bounds.end,
     bounds.start,
@@ -203,7 +213,7 @@ export async function getPaymentBreakdown(db: SQLiteDatabase, range: ReportRange
   return db.getAllAsync<PaymentBreakdown>(
     `SELECT
        payments.method,
-       SUM(payments.amount) as amount,
+       SUM(sales.total) as amount,
        COUNT(*) as transaction_count
      FROM payments
      INNER JOIN sales ON sales.id = payments.sale_id
@@ -224,11 +234,21 @@ export async function getSalesReportRows(db: SQLiteDatabase, range: ReportRange,
     `SELECT
        sales.*,
        users.full_name as cashier_name,
-       COALESCE(SUM(sale_items.quantity), 0) as item_count,
+       COALESCE(item_totals.item_count, 0) as item_count,
+       COALESCE(adjustment_totals.adjustment_count, 0) as adjustment_count,
        GROUP_CONCAT(DISTINCT payments.method) as payment_methods
      FROM sales
      INNER JOIN users ON users.id = sales.cashier_id
-     LEFT JOIN sale_items ON sale_items.sale_id = sales.id
+     LEFT JOIN (
+       SELECT sale_id, SUM(quantity) as item_count
+       FROM sale_items
+       GROUP BY sale_id
+     ) item_totals ON item_totals.sale_id = sales.id
+     LEFT JOIN (
+       SELECT sale_id, COUNT(*) as adjustment_count
+       FROM sale_adjustments
+       GROUP BY sale_id
+     ) adjustment_totals ON adjustment_totals.sale_id = sales.id
      LEFT JOIN payments ON payments.sale_id = sales.id
      WHERE sales.completed_at >= ?
        AND sales.completed_at < ?

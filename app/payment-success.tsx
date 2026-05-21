@@ -11,12 +11,17 @@ import { palette, spacing } from '@/constants/theme';
 import { getSaleById } from '@/lib/database/sales';
 import type { SaleRecord } from '@/lib/database/types';
 import { formatCurrency, formatDateTime } from '@/lib/format';
+import { printReceiptForSale } from '@/lib/printing/receipt';
+import { useAppStore } from '@/lib/store/app-store';
 
 export default function PaymentSuccessScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const params = useLocalSearchParams<{ saleId?: string; changeDue?: string }>();
+  const currentUser = useAppStore((state) => state.currentUser);
   const [sale, setSale] = useState<SaleRecord | null>(null);
+  const [printMessage, setPrintMessage] = useState<string | null>(null);
+  const [printing, setPrinting] = useState(false);
   const saleId = Number(params.saleId);
   const changeDue = Number(params.changeDue ?? 0);
 
@@ -50,7 +55,45 @@ export default function PaymentSuccessScreen() {
           size="lg"
           title="New Sale"
         />
-        <Button fullWidth icon="print-outline" title="Print Receipt" variant="outline" />
+        {sale ? (
+          <Button
+            fullWidth
+            icon="swap-horizontal-outline"
+            title="Adjust Sale"
+            variant="outline"
+            onPress={() =>
+              router.push({
+                pathname: '/sale-adjustment',
+                params: { saleId: String(sale.id) },
+              } as never)
+            }
+          />
+        ) : null}
+        <Button
+          fullWidth
+          icon="print-outline"
+          title="Print Receipt"
+          variant="outline"
+          loading={printing}
+          onPress={async () => {
+            if (!sale) {
+              return;
+            }
+
+            setPrinting(true);
+            setPrintMessage(null);
+
+            try {
+              await printReceiptForSale(db, { saleId: sale.id, userId: currentUser?.id ?? null });
+              setPrintMessage('Receipt sent to printer.');
+            } catch (error) {
+              setPrintMessage(error instanceof Error ? error.message : 'Unable to print receipt.');
+            } finally {
+              setPrinting(false);
+            }
+          }}
+        />
+        {printMessage ? <Text style={styles.printMessage}>{printMessage}</Text> : null}
       </Card>
     </AppShell>
   );
@@ -101,5 +144,11 @@ const styles = StyleSheet.create({
     color: palette.primary,
     fontSize: 24,
     fontWeight: '900',
+  },
+  printMessage: {
+    color: palette.primaryDark,
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'center',
   },
 });

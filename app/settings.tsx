@@ -15,10 +15,11 @@ import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Table, type TableColumn } from '@/components/ui/Table';
 import { palette, radii, spacing } from '@/constants/theme';
+import { getRecentPrintJobs } from '@/lib/database/printing';
 import { runDatabaseIntegrityCheck, type DatabaseHealthCheck } from '@/lib/database/health';
 import { getDatabaseSummary } from '@/lib/database/queries';
 import { getAuditLogs, getSettingsMap, saveSettings } from '@/lib/database/settings';
-import type { AuditLogItem, DatabaseCount, PaymentMethod } from '@/lib/database/types';
+import type { AuditLogItem, DatabaseCount, PaymentMethod, PrintJob } from '@/lib/database/types';
 import { formatDateTime } from '@/lib/format';
 import { useAppStore } from '@/lib/store/app-store';
 
@@ -47,6 +48,13 @@ type ReceiptForm = {
 type BranchForm = {
   branchName: string;
   branchCode: string;
+};
+
+type PrinterForm = {
+  printerName: string;
+  printerAddress: string;
+  paperWidth: string;
+  connectionType: 'bluetooth' | 'system';
 };
 
 type PaymentSettings = Record<PaymentMethod, boolean>;
@@ -101,6 +109,35 @@ const logColumns: TableColumn<AuditLogItem>[] = [
   },
 ];
 
+const printJobColumns: TableColumn<PrintJob>[] = [
+  { key: 'receipt', title: 'Receipt', accessor: 'receipt_number', width: 160 },
+  { key: 'printer', title: 'Printer', accessor: 'printer_name', width: 170 },
+  { key: 'address', title: 'Address', accessor: 'printer_address', width: 170 },
+  {
+    key: 'status',
+    title: 'Status',
+    width: 110,
+    render: (job) => (
+      <Badge
+        status={job.status === 'sent' ? 'active' : job.status === 'failed' ? 'critical' : 'inactive'}
+        label={job.status.toUpperCase()}
+      />
+    ),
+  },
+  {
+    key: 'date',
+    title: 'Created',
+    width: 170,
+    render: (job) => <Text style={styles.tableText}>{formatDateTime(job.created_at)}</Text>,
+  },
+  {
+    key: 'error',
+    title: 'Error',
+    accessor: 'error_message',
+    width: 220,
+  },
+];
+
 function parsePaymentSettings(value?: string): PaymentSettings {
   if (!value) {
     return defaultPayments;
@@ -121,6 +158,7 @@ export default function SettingsScreen() {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(defaultPayments);
   const [logs, setLogs] = useState<AuditLogItem[]>([]);
+  const [printJobs, setPrintJobs] = useState<PrintJob[]>([]);
   const [summary, setSummary] = useState<Record<string, number>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [healthCheck, setHealthCheck] = useState<DatabaseHealthCheck | null>(null);
@@ -144,15 +182,25 @@ export default function SettingsScreen() {
       branchCode: '',
     },
   });
+  const printerForm = useForm<PrinterForm>({
+    defaultValues: {
+      printerName: '',
+      printerAddress: '',
+      paperWidth: '58mm',
+      connectionType: 'bluetooth',
+    },
+  });
 
   const refresh = useCallback(async () => {
-    const [nextSettings, nextLogs, dbSummary] = await Promise.all([
+    const [nextSettings, nextLogs, nextPrintJobs, dbSummary] = await Promise.all([
       getSettingsMap(db),
       getAuditLogs(db, 50),
+      getRecentPrintJobs(db, 15),
       getDatabaseSummary(db),
     ]);
     setSettings(nextSettings);
     setLogs(nextLogs);
+    setPrintJobs(nextPrintJobs);
     setSummary(dbSummary as Record<keyof typeof dbSummary, DatabaseCount['count']>);
     setPaymentSettings(parsePaymentSettings(nextSettings.payment_methods));
     generalForm.reset({
@@ -167,7 +215,13 @@ export default function SettingsScreen() {
       branchName: nextSettings.branch_name ?? 'Main Branch',
       branchCode: nextSettings.branch_code ?? 'MAIN',
     });
-  }, [branchForm, db, generalForm, receiptForm]);
+    printerForm.reset({
+      printerName: nextSettings.printer_name ?? '',
+      printerAddress: nextSettings.printer_address ?? '',
+      paperWidth: nextSettings.printer_paper_width ?? '58mm',
+      connectionType: nextSettings.printer_connection_type === 'system' ? 'system' : 'bluetooth',
+    });
+  }, [branchForm, db, generalForm, printerForm, receiptForm]);
 
   useFocusEffect(
     useCallback(() => {
@@ -179,7 +233,10 @@ export default function SettingsScreen() {
     () => [
       {
         label: 'Receipt Printer',
-        value: settings.hardware_printer ?? 'Not configured',
+        value:
+          settings.printer_name || settings.hardware_printer
+            ? `${settings.printer_name || settings.hardware_printer} (${settings.printer_connection_type ?? 'bluetooth'})`
+            : 'Not configured',
         icon: 'print-outline' as IconName,
       },
       {
@@ -242,6 +299,19 @@ export default function SettingsScreen() {
         payment_methods: JSON.stringify(paymentSettings),
       },
       'Payment method settings saved.'
+    );
+  }
+
+  async function savePrinter(values: PrinterForm) {
+    await persist(
+      {
+        printer_connection_type: values.connectionType,
+        printer_name: values.printerName,
+        printer_address: values.printerAddress,
+        printer_paper_width: values.paperWidth,
+        hardware_printer: values.printerName || 'Not configured',
+      },
+      'Printer settings saved.'
     );
   }
 
@@ -411,7 +481,9 @@ export default function SettingsScreen() {
               <Card style={styles.formCard}>
                 <Text style={styles.sectionTitle}>Hardware Setup</Text>
                 <Text style={styles.helperText}>
-                  Hardware integrations are placeholders in this offline-only version.
+                  Configure the receipt printer profile used for receipt print jobs. Direct
+                  Bluetooth ESC/POS discovery requires a development build/native adapter; this
+                  screen stores the printer profile and logs print attempts locally.
                 </Text>
                 {hardwareRows.map((row) => (
                   <View key={row.label} style={styles.hardwareRow}>
@@ -420,9 +492,101 @@ export default function SettingsScreen() {
                       <Text style={styles.rowTitle}>{row.label}</Text>
                       <Text style={styles.rowMeta}>{row.value}</Text>
                     </View>
-                    <Badge status="inactive" label="Placeholder" />
+                    {row.label === 'Receipt Printer' ? (
+                      <Badge
+                        status={settings.printer_name ? 'active' : 'inactive'}
+                        label={settings.printer_name ? 'Configured' : 'Not Set'}
+                      />
+                    ) : (
+                      <Badge status="inactive" label="Placeholder" />
+                    )}
                   </View>
                 ))}
+                <Controller
+                  control={printerForm.control}
+                  name="connectionType"
+                  render={({ field: { onChange, value } }) => (
+                    <View style={styles.connectionGroup}>
+                      <Text style={styles.fieldLabel}>Connection Mode</Text>
+                      <View style={styles.connectionRow}>
+                        {[
+                          { key: 'bluetooth', label: 'Bluetooth' },
+                          { key: 'system', label: 'System Print' },
+                        ].map((option) => (
+                          <Pressable
+                            key={option.key}
+                            onPress={() => onChange(option.key)}
+                            style={[
+                              styles.connectionOption,
+                              value === option.key && styles.connectionOptionActive,
+                            ]}>
+                            <Text
+                              style={[
+                                styles.connectionText,
+                                value === option.key && styles.connectionTextActive,
+                              ]}>
+                              {option.label}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+                />
+                <Controller
+                  control={printerForm.control}
+                  name="printerName"
+                  render={({ field: { onBlur, onChange, value } }) => (
+                    <Input
+                      label="Bluetooth Printer Name"
+                      onBlur={onBlur}
+                      onChangeText={onChange}
+                      placeholder="POS-58BT"
+                      value={value}
+                    />
+                  )}
+                />
+                <Controller
+                  control={printerForm.control}
+                  name="printerAddress"
+                  render={({ field: { onBlur, onChange, value } }) => (
+                    <Input
+                      label="Bluetooth MAC / Device Address"
+                      autoCapitalize="characters"
+                      onBlur={onBlur}
+                      onChangeText={onChange}
+                      placeholder="00:11:22:33:44:55"
+                      value={value}
+                    />
+                  )}
+                />
+                <Controller
+                  control={printerForm.control}
+                  name="paperWidth"
+                  render={({ field: { onBlur, onChange, value } }) => (
+                    <Input
+                      label="Paper Width"
+                      onBlur={onBlur}
+                      onChangeText={onChange}
+                      value={value}
+                    />
+                  )}
+                />
+                <Button
+                  title="Save Printer"
+                  icon="save-outline"
+                  onPress={printerForm.handleSubmit(savePrinter)}
+                />
+                <View style={styles.tableHeaderCompact}>
+                  <Text style={styles.sectionTitle}>Recent Print Jobs</Text>
+                  <Text style={styles.rowMeta}>{printJobs.length} latest</Text>
+                </View>
+                <Table
+                  columns={printJobColumns}
+                  data={printJobs}
+                  emptyLabel="No receipt print jobs yet."
+                  keyExtractor={(job) => String(job.id)}
+                />
               </Card>
             ) : null}
 
@@ -669,6 +833,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     padding: spacing.md,
+  },
+  tableHeaderCompact: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: spacing.sm,
+  },
+  fieldLabel: {
+    color: palette.inkMuted,
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: spacing.xs,
+  },
+  connectionGroup: {
+    gap: spacing.xs,
+  },
+  connectionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  connectionOption: {
+    alignItems: 'center',
+    borderColor: palette.border,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    minHeight: 40,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  connectionOptionActive: {
+    backgroundColor: palette.primary,
+    borderColor: palette.primary,
+  },
+  connectionText: {
+    color: palette.ink,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  connectionTextActive: {
+    color: palette.surface,
   },
   tableText: {
     color: palette.ink,

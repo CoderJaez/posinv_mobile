@@ -5,6 +5,7 @@ import {
   phase2MigrationSql,
   phase6MigrationSql,
   productImageMigrationSql,
+  salesAdjustmentsAndPrintMigrationSql,
   schemaSql,
 } from './schema';
 import { seedDatabase } from './seed';
@@ -40,6 +41,14 @@ export async function initializeDatabase(db: SQLiteDatabase) {
   }
 
   if (currentVersion < 4) {
+    await db.execAsync('PRAGMA user_version = 4;');
+  }
+
+  if (currentVersion > 0 && currentVersion < 5) {
+    await db.execAsync(salesAdjustmentsAndPrintMigrationSql);
+  }
+
+  if (currentVersion < 5) {
     await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION};`);
   }
 }

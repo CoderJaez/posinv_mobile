@@ -142,6 +142,8 @@ export type CartItemSnapshot = {
   barcode: string | null;
   quantity: number;
   unitPrice: number;
+  baseUnitPrice: number;
+  priceOverrideReason: string | null;
   imageColor: string;
   imageUri: string | null;
   currentStock: number;
@@ -175,6 +177,43 @@ export type SaleRecord = {
   total: number;
   net_sales: number;
   completed_at: string;
+};
+
+export type SaleItemRecord = {
+  id: number;
+  sale_id: number;
+  product_id: number;
+  product_name: string;
+  sku: string;
+  quantity: number;
+  unit_price: number;
+  original_unit_price: number | null;
+  price_override_reason: string | null;
+  discount_amount: number;
+  line_total: number;
+  current_stock?: number;
+};
+
+export type SaleAdjustmentType = 'quantity_update' | 'remove_item';
+
+export type SaleAdjustment = {
+  id: number;
+  sale_id: number;
+  sale_item_id: number | null;
+  product_id: number;
+  product_name?: string;
+  adjustment_type: SaleAdjustmentType;
+  previous_quantity: number;
+  new_quantity: number;
+  quantity_delta: number;
+  previous_unit_price: number;
+  new_unit_price: number;
+  amount_delta: number;
+  restock: number;
+  reason: string;
+  created_by: number;
+  created_by_name?: string;
+  created_at: string;
 };
 
 export type ReportRange = 'daily' | 'weekly' | 'monthly';
@@ -212,6 +251,7 @@ export type PaymentBreakdown = {
 
 export type SalesReportRow = SaleRecord & {
   item_count: number;
+  adjustment_count: number;
   payment_methods: string | null;
 };
 
@@ -272,6 +312,21 @@ export type AuditLogItem = {
   entity_id: number | null;
   metadata_json: string | null;
   created_at: string;
+};
+
+export type PrintJob = {
+  id: number;
+  sale_id: number | null;
+  receipt_number: string | null;
+  printer_name: string | null;
+  printer_address: string | null;
+  connection_type: 'bluetooth' | 'system';
+  status: 'queued' | 'sent' | 'failed';
+  payload_text: string;
+  error_message: string | null;
+  created_by: number | null;
+  created_at: string;
+  printed_at: string | null;
 };
 
 export type DatabaseCount = {
