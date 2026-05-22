@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Akini POS",
-    "slug": "Akini-POS-INVONTORY",
+    "slug": "akini-pos-inventory",
     "version": "1.0.0",
     "orientation": "landscape",
     "icon": "./assets/images/akini-icon.png",
@@ -20,7 +20,9 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "permissions": ["android.permission.RECORD_AUDIO"],
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
       "package": "com.akini91.posinv_mobile"
     },
     "web": {
@@ -56,8 +58,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "1b39b530-d282-403e-9d75-9b749936738f"
+        "projectId": "7024ed89-19d3-4ff2-9a7d-0f9b0d40c22b"
       }
-    }
+    },
+    "owner": "akini91"
   }
 }
