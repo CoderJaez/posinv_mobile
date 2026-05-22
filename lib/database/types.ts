@@ -9,6 +9,10 @@ export type Category = {
   is_active: number;
 };
 
+export type CategoryManagementItem = Category & {
+  product_count: number;
+};
+
 export type ProductListItem = {
   id: number;
   name: string;

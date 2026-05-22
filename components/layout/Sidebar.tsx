@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { usePathname, useRouter } from "expo-router";
 import type { ComponentProps } from "react";
 import {
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -21,7 +22,7 @@ const navItems: { label: string; href: string; icon: IconName }[] = [
   { label: "Shift Summary", href: "/shift-summary", icon: "wallet-outline" },
   { label: "Inventory", href: "/inventory", icon: "file-tray-stacked-outline" },
   { label: "Reports", href: "/reports", icon: "bar-chart-outline" },
-  { label: "Customers", href: "/customers", icon: "people-outline" },
+  // { label: "Customers", href: "/customers", icon: "people-outline" },
   { label: "Suppliers", href: "/suppliers", icon: "cube-outline" },
   { label: "Promotions", href: "/promotions", icon: "pricetag-outline" },
   // { label: "Users & Shifts", href: "/users", icon: "person-circle-outline" },
@@ -43,11 +44,14 @@ export function Sidebar() {
     <View style={[styles.sidebar, { width: sidebarWidth }]}>
       <View style={styles.brand}>
         <View style={styles.logoMark}>
-          <Ionicons name="basket-outline" size={22} color={palette.surface} />
+          <Image
+            source={require("../../assets/images/akini-icon.png")}
+            style={{ width: 22, height: 22 }}
+          />
         </View>
         {!compact ? (
           <View style={styles.brandTextGroup}>
-            <Text style={styles.brandTitle}>StoreMate</Text>
+            <Text style={styles.brandTitle}>Akini POS</Text>
             <Text style={styles.brandSubtitle}>Smart POS System</Text>
           </View>
         ) : null}

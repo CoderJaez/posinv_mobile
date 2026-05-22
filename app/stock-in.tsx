@@ -1,27 +1,32 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
-import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useMemo, useState } from 'react';
-import { Controller, useForm } from 'react-hook-form';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
+import { useRouter } from "expo-router";
+import { useSQLiteContext } from "expo-sqlite";
+import { useCallback, useMemo, useState } from "react";
+import { Controller, useForm } from "react-hook-form";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { RequireRole } from '@/components/auth/RequireRole';
-import { AppShell } from '@/components/layout/AppShell';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { palette, radii, spacing } from '@/constants/theme';
+import { RequireRole } from "@/components/auth/RequireRole";
+import { AppShell } from "@/components/layout/AppShell";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Input } from "@/components/ui/Input";
+import { palette, radii, spacing } from "@/constants/theme";
 import {
   getRecentDeliveries,
   getSuppliers,
   saveDelivery,
   type DeliveryItemInput,
-} from '@/lib/database/inventory';
-import { getProducts } from '@/lib/database/queries';
-import type { DeliveryListItem, ProductListItem, Supplier } from '@/lib/database/types';
-import { formatCurrency, formatDateTime } from '@/lib/format';
-import { useAppStore } from '@/lib/store/app-store';
+} from "@/lib/database/inventory";
+import { getCategories, getProducts } from "@/lib/database/queries";
+import type {
+  Category,
+  DeliveryListItem,
+  ProductListItem,
+  Supplier,
+} from "@/lib/database/types";
+import { formatCurrency, formatDateTime } from "@/lib/format";
+import { useAppStore } from "@/lib/store/app-store";
 
 type DeliveryHeaderForm = {
   invoiceNumber: string;
@@ -47,8 +52,15 @@ export default function StockInScreen() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [products, setProducts] = useState<ProductListItem[]>([]);
   const [deliveries, setDeliveries] = useState<DeliveryListItem[]>([]);
-  const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(null);
-  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(
+    null,
+  );
+  const [activeCategory, setActiveCategory] = useState("All");
+
+  const [selectedProductId, setSelectedProductId] = useState<number | null>(
+    null,
+  );
   const [items, setItems] = useState<DeliveryItemInput[]>([]);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -60,41 +72,58 @@ export default function StockInScreen() {
   });
   const itemForm = useForm<DeliveryItemForm>({
     defaultValues: {
-      batchNumber: '',
-      expiryDate: '',
-      quantity: '',
-      unitCost: '',
+      batchNumber: "",
+      expiryDate: "",
+      quantity: "",
+      unitCost: "",
     },
   });
 
   const refresh = useCallback(async () => {
-    const [nextSuppliers, nextProducts, nextDeliveries] = await Promise.all([
-      getSuppliers(db),
-      getProducts(db),
-      getRecentDeliveries(db, 6),
-    ]);
+    const [nextSuppliers, nextProducts, nextCategories, nextDeliveries] =
+      await Promise.all([
+        getSuppliers(db),
+        getProducts(db),
+        getCategories(db),
+        getRecentDeliveries(db, 6),
+      ]);
     setSuppliers(nextSuppliers);
     setProducts(nextProducts);
+    setCategories(nextCategories);
     setDeliveries(nextDeliveries);
-    setSelectedSupplierId((previous) => previous ?? nextSuppliers[0]?.id ?? null);
+    setSelectedSupplierId(
+      (previous) => previous ?? nextSuppliers[0]?.id ?? null,
+    );
     setSelectedProductId((previous) => previous ?? nextProducts[0]?.id ?? null);
   }, [db]);
 
   useFocusEffect(
     useCallback(() => {
       refresh();
-    }, [refresh])
+    }, [refresh]),
   );
+
+  const visibleProducts = useMemo(() => {
+    return products.filter((product) => {
+      const matchesCategory =
+        activeCategory === "All" || product.category_name === activeCategory;
+
+      return matchesCategory;
+    });
+  }, [activeCategory, products]);
 
   const selectedProduct = useMemo(
     () => products.find((product) => product.id === selectedProductId) ?? null,
-    [products, selectedProductId]
+    [products, selectedProductId],
   );
-  const total = items.reduce((sum, item) => sum + item.quantity * item.unitCost, 0);
+  const total = items.reduce(
+    (sum, item) => sum + item.quantity * item.unitCost,
+    0,
+  );
 
   function addItem(values: DeliveryItemForm) {
     if (!selectedProductId || !selectedProduct) {
-      setMessage('Select a product.');
+      setMessage("Select a product.");
       return;
     }
 
@@ -102,7 +131,7 @@ export default function StockInScreen() {
     const unitCost = Number(values.unitCost);
 
     if (quantity <= 0 || unitCost < 0) {
-      setMessage('Quantity must be positive and unit cost cannot be negative.');
+      setMessage("Quantity must be positive and unit cost cannot be negative.");
       return;
     }
 
@@ -110,7 +139,8 @@ export default function StockInScreen() {
       ...currentItems,
       {
         productId: selectedProductId,
-        batchNumber: values.batchNumber.trim() || `B${Date.now().toString().slice(-6)}`,
+        batchNumber:
+          values.batchNumber.trim() || `B${Date.now().toString().slice(-6)}`,
         expiryDate: values.expiryDate || null,
         quantity,
         unitCost,
@@ -118,9 +148,9 @@ export default function StockInScreen() {
     ]);
     setMessage(null);
     itemForm.reset({
-      batchNumber: '',
-      expiryDate: '',
-      quantity: '',
+      batchNumber: "",
+      expiryDate: "",
+      quantity: "",
       unitCost: String(selectedProduct.regular_price),
     });
   }
@@ -147,7 +177,9 @@ export default function StockInScreen() {
       });
       await refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to save delivery.');
+      setMessage(
+        error instanceof Error ? error.message : "Unable to save delivery.",
+      );
     }
   }
 
@@ -157,15 +189,21 @@ export default function StockInScreen() {
       subtitle="Record supplier deliveries and automatically increase stock"
       actions={
         <>
-          <Button title="Suppliers" variant="secondary" icon="cube-outline" onPress={() => router.push('/suppliers' as never)} />
+          <Button
+            title="Suppliers"
+            variant="secondary"
+            icon="cube-outline"
+            onPress={() => router.push("/suppliers" as never)}
+          />
           <Button
             title="Save Delivery"
             icon="save-outline"
             onPress={headerForm.handleSubmit(saveCurrentDelivery)}
           />
         </>
-      }>
-      <RequireRole roles={['supervisor', 'admin']}>
+      }
+    >
+      <RequireRole roles={["supervisor", "admin"]}>
         <View style={styles.grid}>
           <Card style={styles.formCard}>
             <Text style={styles.sectionTitle}>Delivery Header</Text>
@@ -178,12 +216,15 @@ export default function StockInScreen() {
                   style={[
                     styles.pill,
                     selectedSupplierId === supplier.id && styles.pillActive,
-                  ]}>
+                  ]}
+                >
                   <Text
                     style={[
                       styles.pillText,
-                      selectedSupplierId === supplier.id && styles.pillTextActive,
-                    ]}>
+                      selectedSupplierId === supplier.id &&
+                        styles.pillTextActive,
+                    ]}
+                  >
                     {supplier.name}
                   </Text>
                 </Pressable>
@@ -192,17 +233,28 @@ export default function StockInScreen() {
             <Controller
               control={headerForm.control}
               name="invoiceNumber"
-              rules={{ required: 'Invoice number is required.' }}
+              rules={{ required: "Invoice number is required." }}
               render={({ field: { onBlur, onChange, value } }) => (
-                <Input label="Invoice #" onBlur={onBlur} onChangeText={onChange} value={value} />
+                <Input
+                  label="Invoice #"
+                  onBlur={onBlur}
+                  onChangeText={onChange}
+                  value={value}
+                />
               )}
             />
             <Controller
               control={headerForm.control}
               name="deliveryDate"
-              rules={{ required: 'Delivery date is required.' }}
+              rules={{ required: "Delivery date is required." }}
               render={({ field: { onBlur, onChange, value } }) => (
-                <Input label="Delivery Date" placeholder="YYYY-MM-DD" onBlur={onBlur} onChangeText={onChange} value={value} />
+                <Input
+                  label="Delivery Date"
+                  placeholder="YYYY-MM-DD"
+                  onBlur={onBlur}
+                  onChangeText={onChange}
+                  value={value}
+                />
               )}
             />
 
@@ -214,25 +266,60 @@ export default function StockInScreen() {
 
           <Card style={styles.formCard}>
             <Text style={styles.sectionTitle}>Add Product</Text>
+
+            <View>
+              <View style={styles.pillRow}>
+                {["All", ...categories.map((category) => category.name)].map(
+                  (category) => (
+                    <Pressable
+                      key={category}
+                      onPress={() => setActiveCategory(category)}
+                      style={[
+                        styles.categoryPill,
+                        activeCategory === category &&
+                          styles.categoryPillActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.categoryText,
+                          activeCategory === category &&
+                            styles.categoryTextActive,
+                        ]}
+                      >
+                        {category}
+                      </Text>
+                    </Pressable>
+                  ),
+                )}
+              </View>
+            </View>
             <Text style={styles.blockLabel}>Product</Text>
             <View style={styles.productList}>
-              {products.slice(0, 8).map((product) => (
+              {visibleProducts.map((product) => (
                 <Pressable
                   key={product.id}
                   onPress={() => {
                     setSelectedProductId(product.id);
-                    itemForm.setValue('unitCost', String(product.regular_price));
+                    itemForm.setValue(
+                      "unitCost",
+                      String(product.regular_price),
+                    );
                   }}
                   style={[
                     styles.productChip,
-                    selectedProductId === product.id && styles.productChipActive,
-                  ]}>
+                    selectedProductId === product.id &&
+                      styles.productChipActive,
+                  ]}
+                >
                   <Text
                     style={[
                       styles.productChipText,
-                      selectedProductId === product.id && styles.productChipTextActive,
+                      selectedProductId === product.id &&
+                        styles.productChipTextActive,
                     ]}
-                    numberOfLines={1}>
+                    numberOfLines={1}
+                  >
                     {product.name}
                   </Text>
                 </Pressable>
@@ -242,14 +329,25 @@ export default function StockInScreen() {
               control={itemForm.control}
               name="batchNumber"
               render={({ field: { onBlur, onChange, value } }) => (
-                <Input label="Batch Number" onBlur={onBlur} onChangeText={onChange} value={value} />
+                <Input
+                  label="Batch Number"
+                  onBlur={onBlur}
+                  onChangeText={onChange}
+                  value={value}
+                />
               )}
             />
             <Controller
               control={itemForm.control}
               name="expiryDate"
               render={({ field: { onBlur, onChange, value } }) => (
-                <Input label="Expiry Date" placeholder="YYYY-MM-DD" onBlur={onBlur} onChangeText={onChange} value={value} />
+                <Input
+                  label="Expiry Date"
+                  placeholder="YYYY-MM-DD"
+                  onBlur={onBlur}
+                  onChangeText={onChange}
+                  value={value}
+                />
               )}
             />
             <View style={styles.inlineFields}>
@@ -300,27 +398,46 @@ export default function StockInScreen() {
           </View>
           {items.length === 0 ? (
             <View style={styles.empty}>
-              <Ionicons name="clipboard-outline" size={32} color={palette.inkMuted} />
+              <Ionicons
+                name="clipboard-outline"
+                size={32}
+                color={palette.inkMuted}
+              />
               <Text style={styles.mutedText}>No products added yet.</Text>
             </View>
           ) : (
             items.map((item, index) => {
-              const product = products.find((entry) => entry.id === item.productId);
+              const product = products.find(
+                (entry) => entry.id === item.productId,
+              );
 
               return (
                 <View key={`${item.productId}-${index}`} style={styles.itemRow}>
                   <View style={styles.itemCopy}>
-                    <Text style={styles.itemName}>{product?.name ?? 'Product'}</Text>
+                    <Text style={styles.itemName}>
+                      {product?.name ?? "Product"}
+                    </Text>
                     <Text style={styles.mutedText}>
-                      Batch {item.batchNumber} · Expiry {item.expiryDate || '-'}
+                      Batch {item.batchNumber} · Expiry {item.expiryDate || "-"}
                     </Text>
                   </View>
                   <Text style={styles.itemQty}>{item.quantity}</Text>
-                  <Text style={styles.itemAmount}>{formatCurrency(item.quantity * item.unitCost)}</Text>
+                  <Text style={styles.itemAmount}>
+                    {formatCurrency(item.quantity * item.unitCost)}
+                  </Text>
                   <Pressable
-                    onPress={() => setItems((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-                    style={styles.removeButton}>
-                    <Ionicons name="trash-outline" size={18} color={palette.danger} />
+                    onPress={() =>
+                      setItems((current) =>
+                        current.filter((_, itemIndex) => itemIndex !== index),
+                      )
+                    }
+                    style={styles.removeButton}
+                  >
+                    <Ionicons
+                      name="trash-outline"
+                      size={18}
+                      color={palette.danger}
+                    />
                   </Pressable>
                 </View>
               );
@@ -335,10 +452,13 @@ export default function StockInScreen() {
               <View style={styles.itemCopy}>
                 <Text style={styles.itemName}>{delivery.supplier_name}</Text>
                 <Text style={styles.mutedText}>
-                  {delivery.invoice_number} · {formatDateTime(delivery.created_at)}
+                  {delivery.invoice_number} ·{" "}
+                  {formatDateTime(delivery.created_at)}
                 </Text>
               </View>
-              <Text style={styles.itemAmount}>{formatCurrency(delivery.total_amount)}</Text>
+              <Text style={styles.itemAmount}>
+                {formatCurrency(delivery.total_amount)}
+              </Text>
             </View>
           ))}
         </Card>
@@ -349,9 +469,9 @@ export default function StockInScreen() {
 
 const styles = StyleSheet.create({
   grid: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: "flex-start",
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.md,
   },
   formCard: {
@@ -362,25 +482,25 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: palette.ink,
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   blockLabel: {
     color: palette.ink,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   pillRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.xs,
   },
   pill: {
-    alignItems: 'center',
+    alignItems: "center",
     borderColor: palette.border,
     borderRadius: 999,
     borderWidth: 1,
     minHeight: 34,
-    justifyContent: 'center',
+    justifyContent: "center",
     paddingHorizontal: spacing.sm,
   },
   pillActive: {
@@ -390,14 +510,14 @@ const styles = StyleSheet.create({
   pillText: {
     color: palette.ink,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   pillTextActive: {
     color: palette.surface,
   },
   productList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.xs,
   },
   productChip: {
@@ -414,13 +534,13 @@ const styles = StyleSheet.create({
   productChipText: {
     color: palette.ink,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   productChipTextActive: {
     color: palette.primaryDark,
   },
   inlineFields: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: spacing.sm,
   },
   inlineInput: {
@@ -434,52 +554,52 @@ const styles = StyleSheet.create({
   totalLabel: {
     color: palette.primaryDark,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   totalValue: {
     color: palette.primaryDark,
     fontSize: 24,
-    fontWeight: '900',
+    fontWeight: "900",
     marginTop: spacing.xs,
   },
   message: {
     color: palette.primaryDark,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   itemsCard: {
     gap: spacing.md,
   },
   cardHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   empty: {
-    alignItems: 'center',
+    alignItems: "center",
     gap: spacing.sm,
-    justifyContent: 'center',
+    justifyContent: "center",
     minHeight: 120,
   },
   mutedText: {
     color: palette.inkMuted,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   itemRow: {
-    alignItems: 'center',
+    alignItems: "center",
     borderBottomColor: palette.border,
     borderBottomWidth: 1,
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: spacing.md,
     minHeight: 58,
     paddingVertical: spacing.sm,
   },
   deliveryRow: {
-    alignItems: 'center',
+    alignItems: "center",
     borderBottomColor: palette.border,
     borderBottomWidth: 1,
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: spacing.md,
     minHeight: 54,
   },
@@ -490,26 +610,48 @@ const styles = StyleSheet.create({
   itemName: {
     color: palette.ink,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   itemQty: {
     color: palette.ink,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: "900",
     minWidth: 54,
-    textAlign: 'right',
+    textAlign: "right",
   },
   itemAmount: {
     color: palette.ink,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: "900",
     minWidth: 100,
-    textAlign: 'right',
+    textAlign: "right",
   },
   removeButton: {
-    alignItems: 'center',
+    alignItems: "center",
     height: 36,
-    justifyContent: 'center',
+    justifyContent: "center",
     width: 36,
+  },
+  categoryPill: {
+    alignItems: "center",
+    backgroundColor: palette.surface,
+    borderColor: palette.border,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 34,
+    paddingHorizontal: spacing.md,
+  },
+  categoryPillActive: {
+    backgroundColor: palette.primary,
+    borderColor: palette.primary,
+  },
+  categoryText: {
+    color: palette.ink,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  categoryTextActive: {
+    color: palette.surface,
   },
 });

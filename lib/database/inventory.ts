@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import type {
   Category,
+  CategoryManagementItem,
   DeliveryListItem,
   InventoryBatch,
   ProductDetails,
@@ -42,6 +43,11 @@ export type SupplierInput = {
   phone?: string | null;
   email?: string | null;
   address?: string | null;
+};
+
+export type CategoryInput = {
+  name: string;
+  sortOrder: number;
 };
 
 export type DeliveryItemInput = {
@@ -118,12 +124,50 @@ export async function getProductStockMovements(db: SQLiteDatabase, productId: nu
   );
 }
 
-export async function getSuppliers(db: SQLiteDatabase) {
+export async function getSuppliers(db: SQLiteDatabase, search = '') {
+  const term = `%${search.trim()}%`;
+
   return db.getAllAsync<Supplier>(
     `SELECT id, name, contact_name, phone, email, address, is_active, created_at
      FROM suppliers
      WHERE is_active = 1
+       AND (
+         ? = '%%'
+         OR name LIKE ?
+         OR contact_name LIKE ?
+         OR phone LIKE ?
+         OR email LIKE ?
+         OR address LIKE ?
+       )
      ORDER BY name ASC`
+    ,
+    term,
+    term,
+    term,
+    term,
+    term,
+    term
+  );
+}
+
+export async function getCategoryManagementItems(db: SQLiteDatabase, search = '') {
+  const term = `%${search.trim()}%`;
+
+  return db.getAllAsync<CategoryManagementItem>(
+    `SELECT
+       categories.id,
+       categories.name,
+       categories.sort_order,
+       categories.is_active,
+       COUNT(products.id) as product_count
+     FROM categories
+     LEFT JOIN products ON products.category_id = categories.id
+     WHERE categories.is_active = 1
+       AND (? = '%%' OR categories.name LIKE ?)
+     GROUP BY categories.id
+     ORDER BY categories.sort_order ASC, categories.name ASC`,
+    term,
+    term
   );
 }
 
@@ -388,33 +432,300 @@ export async function adjustProductStock(db: SQLiteDatabase, input: StockAdjustm
 }
 
 export async function createSupplier(db: SQLiteDatabase, input: SupplierInput, userId: number) {
+  const name = input.name.trim();
+
+  if (!name) {
+    throw new Error('Supplier name is required.');
+  }
+
+  const existingSupplier = await db.getFirstAsync<Supplier>(
+    'SELECT id, name, contact_name, phone, email, address, is_active, created_at FROM suppliers WHERE lower(name) = lower(?)',
+    name
+  );
+
+  if (existingSupplier?.is_active) {
+    throw new Error('A supplier with this name already exists.');
+  }
+
   let supplierId = 0;
 
   await db.withTransactionAsync(async () => {
-    const result = await db.runAsync(
-      `INSERT INTO suppliers (name, contact_name, phone, email, address)
-       VALUES (?, ?, ?, ?, ?)`,
-      input.name.trim(),
-      input.contactName?.trim() || null,
-      input.phone?.trim() || null,
-      input.email?.trim() || null,
-      input.address?.trim() || null
-    );
+    if (existingSupplier) {
+      supplierId = existingSupplier.id;
+      await db.runAsync(
+        `UPDATE suppliers
+         SET name = ?,
+             contact_name = ?,
+             phone = ?,
+             email = ?,
+             address = ?,
+             is_active = 1
+         WHERE id = ?`,
+        name,
+        input.contactName?.trim() || null,
+        input.phone?.trim() || null,
+        input.email?.trim() || null,
+        input.address?.trim() || null,
+        supplierId
+      );
+    } else {
+      const result = await db.runAsync(
+        `INSERT INTO suppliers (name, contact_name, phone, email, address)
+         VALUES (?, ?, ?, ?, ?)`,
+        name,
+        input.contactName?.trim() || null,
+        input.phone?.trim() || null,
+        input.email?.trim() || null,
+        input.address?.trim() || null
+      );
 
-    supplierId = result.lastInsertRowId;
+      supplierId = result.lastInsertRowId;
+    }
 
     await db.runAsync(
       `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, metadata_json)
        VALUES (?, ?, ?, ?, ?)`,
       userId,
-      'supplier_created',
+      existingSupplier ? 'supplier_restored' : 'supplier_created',
       'supplier',
       supplierId,
-      JSON.stringify({ name: input.name.trim() })
+      JSON.stringify({ name })
     );
   });
 
   return supplierId;
+}
+
+export async function updateSupplier(
+  db: SQLiteDatabase,
+  supplierId: number,
+  input: SupplierInput,
+  userId: number
+) {
+  const name = input.name.trim();
+
+  if (!name) {
+    throw new Error('Supplier name is required.');
+  }
+
+  const duplicate = await db.getFirstAsync<{ id: number }>(
+    'SELECT id FROM suppliers WHERE lower(name) = lower(?) AND id != ?',
+    name,
+    supplierId
+  );
+
+  if (duplicate) {
+    throw new Error('A supplier with this name already exists.');
+  }
+
+  await db.withTransactionAsync(async () => {
+    const result = await db.runAsync(
+      `UPDATE suppliers
+       SET name = ?,
+           contact_name = ?,
+           phone = ?,
+           email = ?,
+           address = ?
+       WHERE id = ?
+         AND is_active = 1`,
+      name,
+      input.contactName?.trim() || null,
+      input.phone?.trim() || null,
+      input.email?.trim() || null,
+      input.address?.trim() || null,
+      supplierId
+    );
+
+    if (result.changes === 0) {
+      throw new Error('Supplier not found.');
+    }
+
+    await db.runAsync(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, metadata_json)
+       VALUES (?, ?, ?, ?, ?)`,
+      userId,
+      'supplier_updated',
+      'supplier',
+      supplierId,
+      JSON.stringify({ name })
+    );
+  });
+}
+
+export async function deleteSupplier(db: SQLiteDatabase, supplierId: number, userId: number) {
+  const supplier = await db.getFirstAsync<Supplier>(
+    'SELECT id, name, contact_name, phone, email, address, is_active, created_at FROM suppliers WHERE id = ? AND is_active = 1',
+    supplierId
+  );
+
+  if (!supplier) {
+    throw new Error('Supplier not found.');
+  }
+
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('UPDATE suppliers SET is_active = 0 WHERE id = ?', supplierId);
+    await db.runAsync(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, metadata_json)
+       VALUES (?, ?, ?, ?, ?)`,
+      userId,
+      'supplier_deleted',
+      'supplier',
+      supplierId,
+      JSON.stringify({ name: supplier.name })
+    );
+  });
+}
+
+export async function createCategory(db: SQLiteDatabase, input: CategoryInput, userId: number) {
+  const name = input.name.trim();
+  const sortOrder = Number.isFinite(input.sortOrder) ? input.sortOrder : 0;
+
+  if (!name) {
+    throw new Error('Category name is required.');
+  }
+
+  const existingCategory = await db.getFirstAsync<Category>(
+    'SELECT id, name, sort_order, is_active FROM categories WHERE lower(name) = lower(?)',
+    name
+  );
+
+  if (existingCategory?.is_active) {
+    throw new Error('A category with this name already exists.');
+  }
+
+  let categoryId = 0;
+
+  await db.withTransactionAsync(async () => {
+    if (existingCategory) {
+      categoryId = existingCategory.id;
+      await db.runAsync(
+        `UPDATE categories
+         SET name = ?,
+             sort_order = ?,
+             is_active = 1
+         WHERE id = ?`,
+        name,
+        sortOrder,
+        categoryId
+      );
+    } else {
+      const result = await db.runAsync(
+        'INSERT INTO categories (name, sort_order) VALUES (?, ?)',
+        name,
+        sortOrder
+      );
+      categoryId = result.lastInsertRowId;
+    }
+
+    await db.runAsync(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, metadata_json)
+       VALUES (?, ?, ?, ?, ?)`,
+      userId,
+      existingCategory ? 'category_restored' : 'category_created',
+      'category',
+      categoryId,
+      JSON.stringify({ name, sortOrder })
+    );
+  });
+
+  return categoryId;
+}
+
+export async function updateCategory(
+  db: SQLiteDatabase,
+  categoryId: number,
+  input: CategoryInput,
+  userId: number
+) {
+  const name = input.name.trim();
+  const sortOrder = Number.isFinite(input.sortOrder) ? input.sortOrder : 0;
+
+  if (!name) {
+    throw new Error('Category name is required.');
+  }
+
+  const duplicate = await db.getFirstAsync<{ id: number }>(
+    'SELECT id FROM categories WHERE lower(name) = lower(?) AND id != ?',
+    name,
+    categoryId
+  );
+
+  if (duplicate) {
+    throw new Error('A category with this name already exists.');
+  }
+
+  await db.withTransactionAsync(async () => {
+    const result = await db.runAsync(
+      `UPDATE categories
+       SET name = ?,
+           sort_order = ?
+       WHERE id = ?
+         AND is_active = 1`,
+      name,
+      sortOrder,
+      categoryId
+    );
+
+    if (result.changes === 0) {
+      throw new Error('Category not found.');
+    }
+
+    await db.runAsync(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, metadata_json)
+       VALUES (?, ?, ?, ?, ?)`,
+      userId,
+      'category_updated',
+      'category',
+      categoryId,
+      JSON.stringify({ name, sortOrder })
+    );
+  });
+}
+
+export async function deleteCategory(db: SQLiteDatabase, categoryId: number, userId: number) {
+  const category = await db.getFirstAsync<CategoryManagementItem>(
+    `SELECT
+       categories.id,
+       categories.name,
+       categories.sort_order,
+       categories.is_active,
+       COUNT(products.id) as product_count
+     FROM categories
+     LEFT JOIN products ON products.category_id = categories.id
+     WHERE categories.id = ?
+       AND categories.is_active = 1
+     GROUP BY categories.id`,
+    categoryId
+  );
+
+  if (!category) {
+    throw new Error('Category not found.');
+  }
+
+  if (category.product_count > 0) {
+    throw new Error('Move or delete products in this category before deleting it.');
+  }
+
+  const activeCount = await db.getFirstAsync<{ count: number }>(
+    'SELECT COUNT(*) as count FROM categories WHERE is_active = 1'
+  );
+
+  if ((activeCount?.count ?? 0) <= 1) {
+    throw new Error('At least one active category is required.');
+  }
+
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('UPDATE categories SET is_active = 0 WHERE id = ?', categoryId);
+    await db.runAsync(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, metadata_json)
+       VALUES (?, ?, ?, ?, ?)`,
+      userId,
+      'category_deleted',
+      'category',
+      categoryId,
+      JSON.stringify({ name: category.name })
+    );
+  });
 }
 
 export async function saveDelivery(db: SQLiteDatabase, input: DeliveryInput) {

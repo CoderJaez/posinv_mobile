@@ -15,11 +15,24 @@ import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Table, type TableColumn } from '@/components/ui/Table';
 import { palette, radii, spacing } from '@/constants/theme';
+import {
+  createCategory,
+  deleteCategory,
+  getCategoryManagementItems,
+  updateCategory,
+  type CategoryInput,
+} from '@/lib/database/inventory';
 import { getRecentPrintJobs } from '@/lib/database/printing';
 import { runDatabaseIntegrityCheck, type DatabaseHealthCheck } from '@/lib/database/health';
 import { getDatabaseSummary } from '@/lib/database/queries';
 import { getAuditLogs, getSettingsMap, saveSettings } from '@/lib/database/settings';
-import type { AuditLogItem, DatabaseCount, PaymentMethod, PrintJob } from '@/lib/database/types';
+import type {
+  AuditLogItem,
+  CategoryManagementItem,
+  DatabaseCount,
+  PaymentMethod,
+  PrintJob,
+} from '@/lib/database/types';
 import { formatDateTime } from '@/lib/format';
 import { useAppStore } from '@/lib/store/app-store';
 
@@ -29,6 +42,7 @@ type SettingsSection =
   | 'payments'
   | 'receipt'
   | 'hardware'
+  | 'categories'
   | 'users'
   | 'backup'
   | 'branches'
@@ -50,6 +64,11 @@ type BranchForm = {
   branchCode: string;
 };
 
+type CategoryForm = {
+  name: string;
+  sortOrder: string;
+};
+
 type PrinterForm = {
   printerName: string;
   printerAddress: string;
@@ -64,6 +83,7 @@ const sections: { key: SettingsSection; label: string; icon: IconName }[] = [
   { key: 'payments', label: 'Payment Methods', icon: 'card-outline' },
   { key: 'receipt', label: 'Receipt Settings', icon: 'receipt-outline' },
   { key: 'hardware', label: 'Hardware Setup', icon: 'desktop-outline' },
+  { key: 'categories', label: 'Categories', icon: 'pricetags-outline' },
   { key: 'users', label: 'Users & Roles', icon: 'people-outline' },
   { key: 'backup', label: 'Backup & Sync', icon: 'cloud-upload-outline' },
   { key: 'branches', label: 'Branches', icon: 'business-outline' },
@@ -159,6 +179,9 @@ export default function SettingsScreen() {
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(defaultPayments);
   const [logs, setLogs] = useState<AuditLogItem[]>([]);
   const [printJobs, setPrintJobs] = useState<PrintJob[]>([]);
+  const [categories, setCategories] = useState<CategoryManagementItem[]>([]);
+  const [categorySearch, setCategorySearch] = useState('');
+  const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
   const [summary, setSummary] = useState<Record<string, number>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [healthCheck, setHealthCheck] = useState<DatabaseHealthCheck | null>(null);
@@ -182,6 +205,12 @@ export default function SettingsScreen() {
       branchCode: '',
     },
   });
+  const categoryForm = useForm<CategoryForm>({
+    defaultValues: {
+      name: '',
+      sortOrder: '0',
+    },
+  });
   const printerForm = useForm<PrinterForm>({
     defaultValues: {
       printerName: '',
@@ -192,15 +221,17 @@ export default function SettingsScreen() {
   });
 
   const refresh = useCallback(async () => {
-    const [nextSettings, nextLogs, nextPrintJobs, dbSummary] = await Promise.all([
+    const [nextSettings, nextLogs, nextPrintJobs, nextCategories, dbSummary] = await Promise.all([
       getSettingsMap(db),
       getAuditLogs(db, 50),
       getRecentPrintJobs(db, 15),
+      getCategoryManagementItems(db),
       getDatabaseSummary(db),
     ]);
     setSettings(nextSettings);
     setLogs(nextLogs);
     setPrintJobs(nextPrintJobs);
+    setCategories(nextCategories);
     setSummary(dbSummary as Record<keyof typeof dbSummary, DatabaseCount['count']>);
     setPaymentSettings(parsePaymentSettings(nextSettings.payment_methods));
     generalForm.reset({
@@ -253,6 +284,18 @@ export default function SettingsScreen() {
     [settings]
   );
 
+  const filteredCategories = useMemo(() => {
+    const normalizedSearch = categorySearch.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return categories;
+    }
+
+    return categories.filter((category) =>
+      category.name.toLowerCase().includes(normalizedSearch)
+    );
+  }, [categories, categorySearch]);
+
   async function persist(values: Record<string, string>, successMessage: string) {
     if (!currentUser) {
       return;
@@ -293,6 +336,75 @@ export default function SettingsScreen() {
     );
   }
 
+  function startEditCategory(category: CategoryManagementItem) {
+    setEditingCategoryId(category.id);
+    categoryForm.reset({
+      name: category.name,
+      sortOrder: String(category.sort_order),
+    });
+    setMessage(null);
+  }
+
+  function cancelCategoryEdit() {
+    setEditingCategoryId(null);
+    categoryForm.reset({
+      name: '',
+      sortOrder: '0',
+    });
+    setMessage(null);
+  }
+
+  async function saveCategory(values: CategoryForm) {
+    if (!currentUser) {
+      return;
+    }
+
+    const input: CategoryInput = {
+      name: values.name,
+      sortOrder: Number(values.sortOrder || 0),
+    };
+
+    try {
+      if (editingCategoryId) {
+        await updateCategory(db, editingCategoryId, input, currentUser.id);
+        setMessage('Category updated.');
+      } else {
+        await createCategory(db, input, currentUser.id);
+        setMessage('Category added.');
+      }
+
+      setEditingCategoryId(null);
+      categoryForm.reset({
+        name: '',
+        sortOrder: '0',
+      });
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to save category.');
+    }
+  }
+
+  async function removeCategory(category: CategoryManagementItem) {
+    if (!currentUser) {
+      return;
+    }
+
+    try {
+      await deleteCategory(db, category.id, currentUser.id);
+      if (editingCategoryId === category.id) {
+        setEditingCategoryId(null);
+        categoryForm.reset({
+          name: '',
+          sortOrder: '0',
+        });
+      }
+      setMessage('Category deleted.');
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to delete category.');
+    }
+  }
+
   async function savePayments() {
     await persist(
       {
@@ -329,6 +441,45 @@ export default function SettingsScreen() {
       setCheckingHealth(false);
     }
   }
+
+  const categoryColumns: TableColumn<CategoryManagementItem>[] = [
+    { key: 'name', title: 'Category', accessor: 'name', width: 220 },
+    { key: 'sort', title: 'Sort', accessor: 'sort_order', width: 80, align: 'right' },
+    { key: 'products', title: 'Products', accessor: 'product_count', width: 100, align: 'right' },
+    {
+      key: 'status',
+      title: 'Status',
+      width: 110,
+      render: (category) => (
+        <Badge
+          status={category.is_active ? 'active' : 'inactive'}
+          label={category.is_active ? 'Active' : 'Inactive'}
+        />
+      ),
+    },
+    {
+      key: 'actions',
+      title: '',
+      width: 190,
+      render: (category) => (
+        <View style={styles.rowActions}>
+          <Button
+            title="Edit"
+            size="sm"
+            variant="outline"
+            onPress={() => startEditCategory(category)}
+          />
+          <Button
+            title="Delete"
+            size="sm"
+            variant="danger"
+            disabled={category.product_count > 0}
+            onPress={() => removeCategory(category)}
+          />
+        </View>
+      ),
+    },
+  ];
 
   return (
     <AppShell
@@ -590,6 +741,79 @@ export default function SettingsScreen() {
               </Card>
             ) : null}
 
+            {selectedSection === 'categories' ? (
+              <Card style={styles.formCard}>
+                <Text style={styles.sectionTitle}>Category Management</Text>
+                <Text style={styles.helperText}>
+                  Manage active product categories used by POS filters, inventory, stock-in, and
+                  promotions. Categories with products must be reassigned before deletion.
+                </Text>
+                <Input
+                  label="Search Categories"
+                  icon="search-outline"
+                  value={categorySearch}
+                  onChangeText={setCategorySearch}
+                  placeholder="Search category name..."
+                />
+                <View style={styles.inlineForm}>
+                  <Controller
+                    control={categoryForm.control}
+                    name="name"
+                    rules={{ required: 'Category name is required.' }}
+                    render={({ field: { onBlur, onChange, value } }) => (
+                      <Input
+                        label="Category Name"
+                        onBlur={onBlur}
+                        onChangeText={onChange}
+                        value={value}
+                        containerStyle={styles.inlineFormMain}
+                      />
+                    )}
+                  />
+                  <Controller
+                    control={categoryForm.control}
+                    name="sortOrder"
+                    render={({ field: { onBlur, onChange, value } }) => (
+                      <Input
+                        label="Sort Order"
+                        keyboardType="number-pad"
+                        onBlur={onBlur}
+                        onChangeText={onChange}
+                        value={value}
+                        containerStyle={styles.inlineFormSort}
+                      />
+                    )}
+                  />
+                </View>
+                {categoryForm.formState.errors.name ? (
+                  <Text style={styles.errorText}>{categoryForm.formState.errors.name.message}</Text>
+                ) : null}
+                <View style={styles.formActions}>
+                  {editingCategoryId ? (
+                    <Button
+                      title="Cancel"
+                      variant="secondary"
+                      icon="close-outline"
+                      onPress={cancelCategoryEdit}
+                      style={styles.formActionButton}
+                    />
+                  ) : null}
+                  <Button
+                    title={editingCategoryId ? 'Update Category' : 'Add Category'}
+                    icon={editingCategoryId ? 'save-outline' : 'add'}
+                    onPress={categoryForm.handleSubmit(saveCategory)}
+                    style={styles.formActionButton}
+                  />
+                </View>
+                <Table
+                  columns={categoryColumns}
+                  data={filteredCategories}
+                  emptyLabel="No categories found."
+                  keyExtractor={(category) => String(category.id)}
+                />
+              </Card>
+            ) : null}
+
             {selectedSection === 'users' ? (
               <Card style={styles.formCard}>
                 <Text style={styles.sectionTitle}>Users & Roles</Text>
@@ -789,6 +1013,32 @@ const styles = StyleSheet.create({
     minHeight: 82,
     textAlignVertical: 'top',
   },
+  inlineForm: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  inlineFormMain: {
+    flexBasis: 260,
+    flexGrow: 1,
+  },
+  inlineFormSort: {
+    flexBasis: 140,
+  },
+  formActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    justifyContent: 'flex-end',
+  },
+  formActionButton: {
+    minWidth: 150,
+  },
+  rowActions: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
   toggleList: {
     gap: spacing.xs,
   },
@@ -905,6 +1155,11 @@ const styles = StyleSheet.create({
   },
   message: {
     color: palette.primaryDark,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  errorText: {
+    color: palette.danger,
     fontSize: 13,
     fontWeight: '800',
   },

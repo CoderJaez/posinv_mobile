@@ -109,6 +109,9 @@ Implemented:
 - Stock movement and audit log entries for adjustments
 - Supplier list screen
 - Add supplier form
+- Supplier search
+- Edit supplier details
+- Soft-delete suppliers from active lists while preserving delivery history
 - Recent delivery list
 - Stock-in delivery screen
 - Supplier selection
@@ -178,6 +181,7 @@ Implemented:
 - General settings
 - Payment method toggles
 - Receipt settings
+- Admin category management with add, edit, search, and delete controls
 - Printing module management
 - Local printer profile for Bluetooth or system print mode
 - Receipt print jobs logged locally through `print_jobs`
@@ -272,7 +276,7 @@ npm test
 - `/reports` - local sales reports dashboard with KPIs, chart, top items, and payment breakdown
 - `/sales-report-details` - detailed sales report with daily, weekly, and monthly filters
 - `/stock-in` - supplier delivery recording with automatic stock increase
-- `/suppliers` - supplier list and add supplier workflow
+- `/suppliers` - supplier list with add, edit, search, delete, and recent delivery references
 - `/promotions` - local promotion list, create, and edit workflow
 - `/prepaid` - prepaid/load transaction recording
 - `/settings` - editable local settings, hardware placeholders, system logs, and about panel
@@ -357,4 +361,5 @@ tests/
 - POS discount automation is still minimal and will be expanded in later phases.
 - Prepaid/load records are local-only and do not call provider APIs.
 - The integrity check verifies SQLite `PRAGMA integrity_check` and `PRAGMA foreign_key_check` locally.
-- Supplier editing and product deactivation are not exposed yet.
+- Category deletion is blocked while products are assigned to the category.
+- Product deactivation is not exposed yet.
