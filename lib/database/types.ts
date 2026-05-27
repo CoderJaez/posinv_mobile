@@ -77,6 +77,30 @@ export type Supplier = {
   created_at: string;
 };
 
+export type CustomerStatus = 'active' | 'inactive';
+
+export type Customer = {
+  id: number;
+  full_name: string;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  loyalty_points: number;
+  notes: string | null;
+  status: CustomerStatus;
+  last_visit_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CustomerSummary = {
+  total_customers: number;
+  active_customers: number;
+  loyalty_members: number;
+  total_loyalty_points: number;
+  recent_visits: number;
+};
+
 export type DeliveryListItem = {
   id: number;
   supplier_id: number;

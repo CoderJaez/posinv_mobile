@@ -33,7 +33,7 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/akini-splash-icon.png",
-          "resizeMode": "contain",
+          "resizeMode": "cover",
           "backgroundColor": "#ffffff",
           "dark": {
             "backgroundColor": "#000000"

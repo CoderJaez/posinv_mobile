@@ -9,9 +9,17 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Table, type TableColumn } from '@/components/ui/Table';
 import { palette, spacing } from '@/constants/theme';
-import { getReportSummary, getSalesReportRows } from '@/lib/database/reports';
+import {
+  getHourlySales,
+  getPaymentBreakdown,
+  getReportSummary,
+  getSalesReportRows,
+  getTopSellingProducts,
+} from '@/lib/database/reports';
 import type { ReportRange, ReportSummary, SalesReportRow } from '@/lib/database/types';
+import { buildReportInsights } from '@/lib/domain/reports';
 import { formatCurrency, formatDateTime } from '@/lib/format';
+import { exportReportPdf } from '@/lib/printing/report';
 
 const ranges: ReportRange[] = ['daily', 'weekly', 'monthly'];
 
@@ -37,6 +45,7 @@ export default function SalesReportDetailsScreen() {
   const [summary, setSummary] = useState<ReportSummary>(emptySummary);
   const [rows, setRows] = useState<SalesReportRow[]>([]);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const saleColumns: TableColumn<SalesReportRow>[] = [
     { key: 'receipt', title: 'Receipt', accessor: 'receipt_number', width: 160 },
     {
@@ -113,11 +122,64 @@ export default function SalesReportDetailsScreen() {
     };
   }, [db, range]);
 
+  async function exportCurrentReport() {
+    setExporting(true);
+    setExportMessage(null);
+
+    try {
+      const [summaryResult, hourly, topSelling, payments, reportRows] = await Promise.all([
+        getReportSummary(db, range),
+        getHourlySales(db, range),
+        getTopSellingProducts(db, range, 10),
+        getPaymentBreakdown(db, range),
+        getSalesReportRows(db, range, 500),
+      ]);
+      const insights = buildReportInsights(
+        {
+          summary: summaryResult.summary,
+          hourlySales: hourly,
+          topProducts: topSelling,
+          paymentBreakdown: payments,
+        },
+        formatCurrency
+      );
+      const message = await exportReportPdf({
+        title: 'Sales Report Details',
+        range,
+        rangeLabel: summaryResult.bounds.label,
+        generatedAt: new Date(),
+        summary: summaryResult.summary,
+        insights,
+        hourlySales: hourly,
+        topProducts: topSelling,
+        paymentBreakdown: payments,
+        salesRows: reportRows,
+      });
+
+      setExportMessage(message);
+    } catch (error) {
+      setExportMessage(error instanceof Error ? error.message : 'Unable to export report PDF.');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <AppShell
       title="Sales Report Details"
       subtitle={rangeLabel || 'Local sales details'}
-      actions={<Button title="Back" variant="secondary" icon="arrow-back" onPress={() => router.back()} />}>
+      actions={
+        <>
+          <Button title="Back" variant="secondary" icon="arrow-back" onPress={() => router.back()} />
+          <Button
+            title="Export PDF"
+            icon="download-outline"
+            variant="outline"
+            loading={exporting}
+            onPress={exportCurrentReport}
+          />
+        </>
+      }>
       <RequireRole roles={['supervisor', 'admin']}>
         <View style={styles.tabs}>
           {ranges.map((option) => (
@@ -157,10 +219,11 @@ export default function SalesReportDetailsScreen() {
 
         {exportMessage ? <Text style={styles.exportMessage}>{exportMessage}</Text> : null}
         <Button
-          title="Export Report"
+          title="Export PDF"
           icon="download-outline"
           variant="outline"
-          onPress={() => setExportMessage('Export placeholder: local file export will be added later.')}
+          loading={exporting}
+          onPress={exportCurrentReport}
         />
       </RequireRole>
     </AppShell>

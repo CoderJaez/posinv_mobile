@@ -14,6 +14,7 @@ import {
   getHourlySales,
   getPaymentBreakdown,
   getReportSummary,
+  getSalesReportRows,
   getTopSellingProducts,
 } from '@/lib/database/reports';
 import type {
@@ -23,7 +24,9 @@ import type {
   ReportSummary,
   TopSellingProduct,
 } from '@/lib/database/types';
+import { buildReportInsights } from '@/lib/domain/reports';
 import { formatCurrency } from '@/lib/format';
+import { exportReportPdf } from '@/lib/printing/report';
 
 const rangeOptions: { label: string; value: ReportRange }[] = [
   { label: 'Daily', value: 'daily' },
@@ -52,7 +55,9 @@ export default function ReportsScreen() {
   const [topProducts, setTopProducts] = useState<TopSellingProduct[]>([]);
   const [paymentBreakdown, setPaymentBreakdown] = useState<PaymentBreakdown[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
 
   const loadReports = useCallback(async () => {
     setLoading(true);
@@ -92,6 +97,61 @@ export default function ReportsScreen() {
     (point) => point.total_sales > 0 || point.transaction_count > 0
   );
   const chartPoints = activeHours.length > 0 ? activeHours : hourlySales.filter((_, index) => index % 3 === 0);
+  const insights = useMemo(
+    () =>
+      buildReportInsights(
+        {
+          summary,
+          hourlySales,
+          topProducts,
+          paymentBreakdown,
+        },
+        formatCurrency
+      ),
+    [hourlySales, paymentBreakdown, summary, topProducts]
+  );
+
+  async function exportCurrentReport() {
+    setExporting(true);
+    setExportMessage(null);
+
+    try {
+      const [summaryResult, hourly, topSelling, payments, salesRows] = await Promise.all([
+        getReportSummary(db, range),
+        getHourlySales(db, range),
+        getTopSellingProducts(db, range, 10),
+        getPaymentBreakdown(db, range),
+        getSalesReportRows(db, range, 500),
+      ]);
+      const reportInsights = buildReportInsights(
+        {
+          summary: summaryResult.summary,
+          hourlySales: hourly,
+          topProducts: topSelling,
+          paymentBreakdown: payments,
+        },
+        formatCurrency
+      );
+      const message = await exportReportPdf({
+        title: 'Sales Report',
+        range,
+        rangeLabel: summaryResult.bounds.label,
+        generatedAt: new Date(),
+        summary: summaryResult.summary,
+        insights: reportInsights,
+        hourlySales: hourly,
+        topProducts: topSelling,
+        paymentBreakdown: payments,
+        salesRows,
+      });
+
+      setExportMessage(message);
+    } catch (error) {
+      setExportMessage(error instanceof Error ? error.message : 'Unable to export report PDF.');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <AppShell
@@ -109,6 +169,14 @@ export default function ReportsScreen() {
                 params: { range },
               } as never)
             }
+          />
+          <Button
+            title="Export PDF"
+            icon="download-outline"
+            variant="outline"
+            disabled={loading}
+            loading={exporting}
+            onPress={exportCurrentReport}
           />
         </>
       }>
@@ -129,6 +197,7 @@ export default function ReportsScreen() {
             </Pressable>
           ))}
         </View>
+        {exportMessage ? <Text style={styles.exportMessage}>{exportMessage}</Text> : null}
 
         {loading ? (
           <Card>
@@ -154,6 +223,18 @@ export default function ReportsScreen() {
               <Metric label="Average Basket" value={formatCurrency(summary.average_basket)} />
               <Metric label="Items Sold" value={summary.items_sold.toLocaleString()} />
             </View>
+
+            <Card style={styles.insightsCard}>
+              <Text style={styles.sectionTitle}>Analytics Insights</Text>
+              <View style={styles.insightList}>
+                {insights.map((insight) => (
+                  <View key={insight} style={styles.insightRow}>
+                    <View style={styles.insightDot} />
+                    <Text style={styles.insightText}>{insight}</Text>
+                  </View>
+                ))}
+              </View>
+            </Card>
 
             <View style={styles.reportGrid}>
               <Card style={styles.chartCard}>
@@ -319,6 +400,31 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.md,
   },
+  insightsCard: {
+    gap: spacing.sm,
+  },
+  insightList: {
+    gap: spacing.sm,
+  },
+  insightRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  insightDot: {
+    backgroundColor: palette.primary,
+    borderRadius: radii.pill,
+    height: 8,
+    marginTop: 6,
+    width: 8,
+  },
+  insightText: {
+    color: palette.ink,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
   chartCard: {
     flex: 2,
     minWidth: 420,
@@ -445,5 +551,10 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.sm,
     marginTop: spacing.md,
+  },
+  exportMessage: {
+    color: palette.primaryDark,
+    fontSize: 13,
+    fontWeight: '800',
   },
 });

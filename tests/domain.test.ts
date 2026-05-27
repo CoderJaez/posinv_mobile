@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { summarizeSalesForReport } from '../lib/domain/reports';
+import { buildReportInsights, summarizeSalesForReport } from '../lib/domain/reports';
 import { calculateCashChange, calculateSaleTotals } from '../lib/domain/sales';
 import { calculateNewStock, planBatchDeductions } from '../lib/domain/stock';
 
@@ -90,5 +90,33 @@ describe('report summaries', () => {
       cancelled_transactions: 1,
       net_sales: 145,
     });
+  });
+
+  it('builds actionable report insights from report data', () => {
+    const insights = buildReportInsights(
+      {
+        summary: {
+          total_sales: 200,
+          total_transactions: 4,
+          average_basket: 50,
+          discounts: 5,
+          returns: 0,
+          cancelled_transactions: 1,
+          net_sales: 195,
+        },
+        hourlySales: [
+          { label: '9AM', total_sales: 40, transaction_count: 1 },
+          { label: '10AM', total_sales: 160, transaction_count: 3 },
+        ],
+        topProducts: [{ product_name: 'Coke 500ml', quantity_sold: 6, total_sales: 150 }],
+        paymentBreakdown: [{ method: 'cash', amount: 200, transaction_count: 4 }],
+      },
+      (value) => `PHP ${value.toFixed(2)}`
+    );
+
+    assert.equal(insights.length, 5);
+    assert.match(insights[0], /Net sales are PHP 195.00/);
+    assert.match(insights[1], /10AM/);
+    assert.match(insights[2], /Coke 500ml/);
   });
 });

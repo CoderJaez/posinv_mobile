@@ -1,4 +1,4 @@
-export const DATABASE_VERSION = 5;
+export const DATABASE_VERSION = 6;
 
 export const seedPinHashes = {
   '1234': 'sha256:7c945c5f416ccab502046c840c08f67d5aa1dac293641dd4574d84cc01998146',
@@ -116,6 +116,20 @@ CREATE TABLE IF NOT EXISTS suppliers (
   address TEXT,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS customers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  full_name TEXT NOT NULL,
+  phone TEXT UNIQUE,
+  email TEXT,
+  address TEXT,
+  loyalty_points INTEGER NOT NULL DEFAULT 0,
+  notes TEXT,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+  last_visit_at TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS deliveries (
@@ -299,6 +313,8 @@ CREATE INDEX IF NOT EXISTS idx_cash_drawer_movements_shift ON cash_drawer_moveme
 CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
 CREATE INDEX IF NOT EXISTS idx_inventory_batches_product ON inventory_batches(product_id);
 CREATE INDEX IF NOT EXISTS idx_stock_movements_product ON stock_movements(product_id);
+CREATE INDEX IF NOT EXISTS idx_customers_status ON customers(status);
+CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(full_name);
 CREATE INDEX IF NOT EXISTS idx_sales_completed_at ON sales(completed_at);
 CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);
 CREATE INDEX IF NOT EXISTS idx_payments_sale ON payments(sale_id);
@@ -484,4 +500,38 @@ VALUES ('printer_paper_width', '58mm');
 CREATE INDEX IF NOT EXISTS idx_sale_adjustments_sale ON sale_adjustments(sale_id);
 CREATE INDEX IF NOT EXISTS idx_sale_adjustments_created_at ON sale_adjustments(created_at);
 CREATE INDEX IF NOT EXISTS idx_print_jobs_sale ON print_jobs(sale_id);
+`;
+
+export const customerModuleMigrationSql = `
+CREATE TABLE IF NOT EXISTS customers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  full_name TEXT NOT NULL,
+  phone TEXT UNIQUE,
+  email TEXT,
+  address TEXT,
+  loyalty_points INTEGER NOT NULL DEFAULT 0,
+  notes TEXT,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+  last_visit_at TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT OR IGNORE INTO customers
+  (full_name, phone, email, address, loyalty_points, notes, status, last_visit_at)
+VALUES
+  ('Rosa Mendoza', '0917-555-1201', 'rosa.mendoza@example.local', 'Mandaluyong City', 120, 'Prefers SMS updates for promos.', 'active', '2026-05-06 11:20:00');
+
+INSERT OR IGNORE INTO customers
+  (full_name, phone, email, address, loyalty_points, notes, status, last_visit_at)
+VALUES
+  ('Carlo Reyes', '0917-555-1202', 'carlo.reyes@example.local', 'Quezon City', 45, 'Buys prepaid load weekly.', 'active', '2026-05-05 16:05:00');
+
+INSERT OR IGNORE INTO customers
+  (full_name, phone, email, address, loyalty_points, notes, status, last_visit_at)
+VALUES
+  ('Mina Santos', '0917-555-1203', NULL, 'Pasig City', 0, 'Walk-in customer record for warranty references.', 'active', NULL);
+
+CREATE INDEX IF NOT EXISTS idx_customers_status ON customers(status);
+CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(full_name);
 `;

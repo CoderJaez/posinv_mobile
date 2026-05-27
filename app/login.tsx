@@ -9,6 +9,7 @@ import {
 } from "react-hook-form";
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -98,11 +99,11 @@ export default function LoginScreen() {
       <View style={[styles.root, compact && styles.rootCompact]}>
         <View style={styles.brandPane}>
           <View style={styles.logo}>
-            <Ionicons name="basket-outline" size={36} color={palette.surface} />
+            <Image source={require("../assets/images/akini-icon.png")} />
           </View>
-          <Text style={styles.brandTitle}>StoreMate</Text>
+          <Text style={styles.brandTitle}>Akini POS</Text>
           <Text style={styles.brandCopy}>
-            Offline tablet POS and inventory management for convenience stores.
+            POS and inventory management for convenience stores.
           </Text>
         </View>
 

@@ -54,10 +54,11 @@ export async function getUsers(db: SQLiteDatabase) {
 }
 
 export async function getDatabaseSummary(db: SQLiteDatabase) {
-  const [productCount, userCount, supplierCount, categoryCount] = await Promise.all([
+  const [productCount, userCount, supplierCount, customerCount, categoryCount] = await Promise.all([
     db.getFirstAsync<{ count: number }>('SELECT COUNT(*) as count FROM products'),
     db.getFirstAsync<{ count: number }>('SELECT COUNT(*) as count FROM users'),
     db.getFirstAsync<{ count: number }>('SELECT COUNT(*) as count FROM suppliers'),
+    db.getFirstAsync<{ count: number }>('SELECT COUNT(*) as count FROM customers'),
     db.getFirstAsync<{ count: number }>('SELECT COUNT(*) as count FROM categories'),
   ]);
 
@@ -65,6 +66,7 @@ export async function getDatabaseSummary(db: SQLiteDatabase) {
     products: productCount?.count ?? 0,
     users: userCount?.count ?? 0,
     suppliers: supplierCount?.count ?? 0,
+    customers: customerCount?.count ?? 0,
     categories: categoryCount?.count ?? 0,
   };
 }

@@ -22,11 +22,11 @@ const navItems: { label: string; href: string; icon: IconName }[] = [
   { label: "Shift Summary", href: "/shift-summary", icon: "wallet-outline" },
   { label: "Inventory", href: "/inventory", icon: "file-tray-stacked-outline" },
   { label: "Reports", href: "/reports", icon: "bar-chart-outline" },
-  // { label: "Customers", href: "/customers", icon: "people-outline" },
+  { label: "Customers", href: "/customers", icon: "people-outline" },
   { label: "Suppliers", href: "/suppliers", icon: "cube-outline" },
   { label: "Promotions", href: "/promotions", icon: "pricetag-outline" },
-  // { label: "Users & Shifts", href: "/users", icon: "person-circle-outline" },
-  // { label: "Prepaid", href: "/prepaid", icon: "card-outline" },
+  { label: "Users & Shifts", href: "/users", icon: "person-circle-outline" },
+  { label: "Prepaid", href: "/prepaid", icon: "card-outline" },
   { label: "Settings", href: "/settings", icon: "settings-outline" },
 ];
 

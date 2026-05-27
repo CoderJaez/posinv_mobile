@@ -1080,6 +1080,7 @@ export default function SettingsScreen() {
                   <AboutMetric label="Products" value={String(summary.products ?? 0)} />
                   <AboutMetric label="Users" value={String(summary.users ?? 0)} />
                   <AboutMetric label="Suppliers" value={String(summary.suppliers ?? 0)} />
+                  <AboutMetric label="Customers" value={String(summary.customers ?? 0)} />
                   <AboutMetric label="Categories" value={String(summary.categories ?? 0)} />
                 </View>
                 <Text style={styles.helperText}>

@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import {
   DATABASE_VERSION,
+  customerModuleMigrationSql,
   phase2MigrationSql,
   phase6MigrationSql,
   productImageMigrationSql,
@@ -49,6 +50,11 @@ export async function initializeDatabase(db: SQLiteDatabase) {
   }
 
   if (currentVersion < 5) {
+    await db.execAsync('PRAGMA user_version = 5;');
+  }
+
+  if (currentVersion < 6) {
+    await db.execAsync(customerModuleMigrationSql);
     await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION};`);
   }
 }
