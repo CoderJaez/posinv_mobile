@@ -73,6 +73,7 @@ Implemented:
   - GrabPay
 - Completed sales saved locally into `sales`, `sale_items`, and `payments`
 - Original unit price and override reason stored per sale line
+- Active product, category, bundle, time-based, and basket fixed promotions applied to POS totals
 - Product stock deducted automatically on completed sale
 - Inventory batches deducted using earliest-expiry-first logic when batch rows exist
 - Stock movements written for each sold item
@@ -89,6 +90,7 @@ Implemented:
 - Stock movement history per product
 - Add product screen
 - Edit product screen
+- Admin product deletion from Settings when current stock and batch stock are both zero
 - Product fields:
   - SKU
   - Barcode
@@ -158,6 +160,12 @@ Implemented:
 - Promotion list backed by local SQLite data
 - Create promotion flow
 - Edit promotion flow
+- Admin delete promotion workflow
+- Active promotions automatically applied in checkout:
+  - Product and category percentage discounts
+  - Time-based discounts using optional `startTime` and `endTime` rule JSON
+  - Bundle rules using `buyQty` and `freeQty` rule JSON
+  - Basket fixed discounts using optional `minimumSpend` rule JSON
 - Promo types:
   - Bundle
   - Time-based discount
@@ -182,12 +190,15 @@ Implemented:
 - Payment method toggles
 - Receipt settings
 - Admin category management with add, edit, search, and delete controls
+- Admin product management with search and zero-stock delete controls
 - Printing module management
 - Local printer profile for Bluetooth or system print mode
 - Receipt print jobs logged locally through `print_jobs`
 - Receipt printing through Expo's local print pipeline for paired/available receipt printers
 - Users & roles shortcut
-- Backup & sync placeholder
+- Local SQLite database export
+- Local SQLite database import with safety backup before restore
+- Offline backup status panel
 - Branch settings
 - System logs from `audit_logs`
 - About system panel with local database counts
@@ -279,7 +290,7 @@ npm test
 - `/suppliers` - supplier list with add, edit, search, delete, and recent delivery references
 - `/promotions` - local promotion list, create, and edit workflow
 - `/prepaid` - prepaid/load transaction recording
-- `/settings` - editable local settings, hardware placeholders, system logs, and about panel
+- `/settings` - editable local settings, category/product management, database backup, hardware placeholders, system logs, and about panel
 
 ## Local Database
 
@@ -355,11 +366,12 @@ tests/
 
 - This app is intentionally offline-only for the current version.
 - Reports are calculated from completed local sales in SQLite; empty ranges show zero-value KPIs and empty states.
-- Promotion rules are managed locally but are not automatically applied to POS totals yet.
+- Promotion rules are managed locally and active rules are applied to POS totals before payment.
 - Sold transaction adjustments are logged locally and can return removed quantity to stock or remove it without restocking.
 - Receipt printing uses `expo-print`, so direct Bluetooth ESC/POS discovery/write support still requires a native adapter and development build. The app stores Bluetooth printer profile details and logs every print attempt locally.
 - POS discount automation is still minimal and will be expanded in later phases.
 - Prepaid/load records are local-only and do not call provider APIs.
 - The integrity check verifies SQLite `PRAGMA integrity_check` and `PRAGMA foreign_key_check` locally.
 - Category deletion is blocked while products are assigned to the category.
-- Product deactivation is not exposed yet.
+- Product deletion is a soft delete and is blocked until current stock and batch stock are zero.
+- App updates retain the local SQLite database when installed over the existing app with the same package/application ID. Uninstalling the app still removes local app data at the OS level.

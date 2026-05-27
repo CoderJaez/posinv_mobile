@@ -171,6 +171,48 @@ export async function getCategoryManagementItems(db: SQLiteDatabase, search = ''
   );
 }
 
+export async function getProductManagementItems(db: SQLiteDatabase, search = '') {
+  const term = `%${search.trim()}%`;
+
+  return db.getAllAsync<ProductListItem>(
+    `SELECT
+       products.id,
+       products.name,
+       products.sku,
+       products.barcode,
+       products.category_id,
+       categories.name as category_name,
+       products.unit,
+       products.regular_price,
+       products.promo_price,
+       products.current_stock,
+       products.reorder_level,
+       products.image_color,
+       products.image_uri,
+       MIN(inventory_batches.expiry_date) as nearest_expiry
+     FROM products
+     INNER JOIN categories ON categories.id = products.category_id
+     LEFT JOIN inventory_batches ON inventory_batches.product_id = products.id
+       AND inventory_batches.quantity > 0
+       AND inventory_batches.expiry_date IS NOT NULL
+     WHERE products.is_active = 1
+       AND (
+         ? = '%%'
+         OR products.name LIKE ?
+         OR products.sku LIKE ?
+         OR products.barcode LIKE ?
+         OR categories.name LIKE ?
+       )
+     GROUP BY products.id
+     ORDER BY categories.sort_order ASC, products.name ASC`,
+    term,
+    term,
+    term,
+    term,
+    term
+  );
+}
+
 export async function getRecentDeliveries(db: SQLiteDatabase, limit = 20) {
   return db.getAllAsync<DeliveryListItem>(
     `SELECT deliveries.*, suppliers.name as supplier_name
@@ -305,6 +347,7 @@ export async function adjustProductStock(db: SQLiteDatabase, input: StockAdjustm
        products.name,
        products.sku,
        products.barcode,
+       products.category_id,
        categories.name as category_name,
        products.unit,
        products.regular_price,
@@ -724,6 +767,81 @@ export async function deleteCategory(db: SQLiteDatabase, categoryId: number, use
       'category',
       categoryId,
       JSON.stringify({ name: category.name })
+    );
+  });
+}
+
+export async function deleteProduct(db: SQLiteDatabase, productId: number, userId: number) {
+  const product = await db.getFirstAsync<ProductDetails>(
+    `SELECT
+       products.id,
+       products.name,
+       products.sku,
+       products.barcode,
+       products.category_id,
+       categories.name as category_name,
+       products.unit,
+       products.regular_price,
+       products.promo_price,
+       products.unit_cost,
+       products.current_stock,
+       products.reorder_level,
+       products.image_color,
+       products.image_uri,
+       products.is_active,
+       products.created_at,
+       products.updated_at,
+       MIN(inventory_batches.expiry_date) as nearest_expiry
+     FROM products
+     INNER JOIN categories ON categories.id = products.category_id
+     LEFT JOIN inventory_batches ON inventory_batches.product_id = products.id
+     WHERE products.id = ?
+       AND products.is_active = 1
+     GROUP BY products.id`,
+    productId
+  );
+
+  if (!product) {
+    throw new Error('Product not found.');
+  }
+
+  if (product.current_stock !== 0) {
+    throw new Error('Product can only be deleted when current stock is zero.');
+  }
+
+  const batchStock = await db.getFirstAsync<{ quantity: number }>(
+    `SELECT COALESCE(SUM(quantity), 0) as quantity
+     FROM inventory_batches
+     WHERE product_id = ?`,
+    productId
+  );
+
+  if ((batchStock?.quantity ?? 0) !== 0) {
+    throw new Error('Product has remaining batch stock and cannot be deleted.');
+  }
+
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `UPDATE products
+       SET is_active = 0,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      productId
+    );
+    await db.runAsync(
+      `UPDATE promotions
+       SET status = 'inactive'
+       WHERE product_id = ?`,
+      productId
+    );
+    await db.runAsync(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, metadata_json)
+       VALUES (?, ?, ?, ?, ?)`,
+      userId,
+      'product_deleted',
+      'product',
+      productId,
+      JSON.stringify({ sku: product.sku, name: product.name })
     );
   });
 }

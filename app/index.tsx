@@ -21,8 +21,10 @@ import { ProductImage } from '@/components/ui/ProductImage';
 import { palette, radii, spacing } from '@/constants/theme';
 import { formatRole } from '@/lib/auth/roles';
 import { getCategories, getProducts } from '@/lib/database/queries';
+import { getPromotions } from '@/lib/database/promotions';
 import { holdTransaction } from '@/lib/database/sales';
-import type { Category, ProductListItem } from '@/lib/database/types';
+import type { Category, ProductListItem, PromotionListItem } from '@/lib/database/types';
+import { calculatePromotionDiscounts } from '@/lib/domain/promotions';
 import { formatCurrency } from '@/lib/format';
 import { useAppStore } from '@/lib/store/app-store';
 import { useCartStore } from '@/lib/store/cart-store';
@@ -37,11 +39,13 @@ export default function PosCheckoutScreen() {
   const incrementItem = useCartStore((state) => state.incrementItem);
   const decrementItem = useCartStore((state) => state.decrementItem);
   const updateItemPrice = useCartStore((state) => state.updateItemPrice);
+  const updatePromotionDiscounts = useCartStore((state) => state.updatePromotionDiscounts);
   const removeItem = useCartStore((state) => state.removeItem);
   const clearCart = useCartStore((state) => state.clearCart);
   const getTotals = useCartStore((state) => state.getTotals);
   const [products, setProducts] = useState<ProductListItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [promotions, setPromotions] = useState<PromotionListItem[]>([]);
   const [activeCategory, setActiveCategory] = useState('All');
   const [search, setSearch] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
@@ -54,9 +58,14 @@ export default function PosCheckoutScreen() {
   const totals = getTotals();
 
   const loadCatalog = useCallback(async () => {
-    const [nextProducts, nextCategories] = await Promise.all([getProducts(db), getCategories(db)]);
+    const [nextProducts, nextCategories, nextPromotions] = await Promise.all([
+      getProducts(db),
+      getCategories(db),
+      getPromotions(db),
+    ]);
     setProducts(nextProducts);
     setCategories(nextCategories);
+    setPromotions(nextPromotions);
   }, [db]);
 
   useEffect(() => {
@@ -83,6 +92,15 @@ export default function PosCheckoutScreen() {
       return matchesCategory && matchesSearch;
     });
   }, [activeCategory, products, search]);
+
+  const promotionDiscounts = useMemo(
+    () => calculatePromotionDiscounts(cartItems, promotions),
+    [cartItems, promotions]
+  );
+
+  useEffect(() => {
+    updatePromotionDiscounts(promotionDiscounts);
+  }, [promotionDiscounts, updatePromotionDiscounts]);
 
   async function holdCurrentTransaction() {
     if (!currentUser || !currentShift || cartItems.length === 0) {
@@ -295,6 +313,11 @@ export default function PosCheckoutScreen() {
                     </Text>
                     {item.priceOverrideReason ? (
                       <Text style={styles.overrideText}>Adjusted from {formatCurrency(item.baseUnitPrice)}</Text>
+                    ) : null}
+                    {item.appliedPromotionName && item.discountAmount > 0 ? (
+                      <Text style={styles.promoText}>
+                        {item.appliedPromotionName}: -{formatCurrency(item.discountAmount)}
+                      </Text>
                     ) : null}
                     <View style={styles.quantityControls}>
                       <Pressable
@@ -620,6 +643,11 @@ const styles = StyleSheet.create({
   },
   overrideText: {
     color: palette.warning,
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  promoText: {
+    color: palette.primaryDark,
     fontSize: 10,
     fontWeight: '900',
   },

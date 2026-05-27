@@ -18,6 +18,7 @@ export type ProductListItem = {
   name: string;
   sku: string;
   barcode: string | null;
+  category_id: number;
   category_name: string;
   unit: string;
   regular_price: number;
@@ -141,12 +142,17 @@ export type PaymentMethod = 'cash' | 'card' | 'gcash' | 'maya' | 'grabpay';
 
 export type CartItemSnapshot = {
   productId: number;
+  categoryId: number;
+  categoryName: string;
   name: string;
   sku: string;
   barcode: string | null;
   quantity: number;
   unitPrice: number;
   baseUnitPrice: number;
+  discountAmount: number;
+  appliedPromotionId: number | null;
+  appliedPromotionName: string | null;
   priceOverrideReason: string | null;
   imageColor: string;
   imageUri: string | null;

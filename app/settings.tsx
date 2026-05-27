@@ -13,12 +13,16 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
 import { Table, type TableColumn } from '@/components/ui/Table';
 import { palette, radii, spacing } from '@/constants/theme';
+import { exportDatabaseBackup, importDatabaseBackup } from '@/lib/database/backup';
 import {
   createCategory,
   deleteCategory,
+  deleteProduct,
   getCategoryManagementItems,
+  getProductManagementItems,
   updateCategory,
   type CategoryInput,
 } from '@/lib/database/inventory';
@@ -32,8 +36,9 @@ import type {
   DatabaseCount,
   PaymentMethod,
   PrintJob,
+  ProductListItem,
 } from '@/lib/database/types';
-import { formatDateTime } from '@/lib/format';
+import { formatCurrency, formatDateTime } from '@/lib/format';
 import { useAppStore } from '@/lib/store/app-store';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -43,6 +48,7 @@ type SettingsSection =
   | 'receipt'
   | 'hardware'
   | 'categories'
+  | 'products'
   | 'users'
   | 'backup'
   | 'branches'
@@ -84,6 +90,7 @@ const sections: { key: SettingsSection; label: string; icon: IconName }[] = [
   { key: 'receipt', label: 'Receipt Settings', icon: 'receipt-outline' },
   { key: 'hardware', label: 'Hardware Setup', icon: 'desktop-outline' },
   { key: 'categories', label: 'Categories', icon: 'pricetags-outline' },
+  { key: 'products', label: 'Products', icon: 'cube-outline' },
   { key: 'users', label: 'Users & Roles', icon: 'people-outline' },
   { key: 'backup', label: 'Backup & Sync', icon: 'cloud-upload-outline' },
   { key: 'branches', label: 'Branches', icon: 'business-outline' },
@@ -182,8 +189,13 @@ export default function SettingsScreen() {
   const [categories, setCategories] = useState<CategoryManagementItem[]>([]);
   const [categorySearch, setCategorySearch] = useState('');
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
+  const [products, setProducts] = useState<ProductListItem[]>([]);
+  const [productSearch, setProductSearch] = useState('');
+  const [deletingProduct, setDeletingProduct] = useState<ProductListItem | null>(null);
   const [summary, setSummary] = useState<Record<string, number>>({});
   const [message, setMessage] = useState<string | null>(null);
+  const [exportingBackup, setExportingBackup] = useState(false);
+  const [importingBackup, setImportingBackup] = useState(false);
   const [healthCheck, setHealthCheck] = useState<DatabaseHealthCheck | null>(null);
   const [checkingHealth, setCheckingHealth] = useState(false);
 
@@ -221,17 +233,19 @@ export default function SettingsScreen() {
   });
 
   const refresh = useCallback(async () => {
-    const [nextSettings, nextLogs, nextPrintJobs, nextCategories, dbSummary] = await Promise.all([
+    const [nextSettings, nextLogs, nextPrintJobs, nextCategories, nextProducts, dbSummary] = await Promise.all([
       getSettingsMap(db),
       getAuditLogs(db, 50),
       getRecentPrintJobs(db, 15),
       getCategoryManagementItems(db),
+      getProductManagementItems(db),
       getDatabaseSummary(db),
     ]);
     setSettings(nextSettings);
     setLogs(nextLogs);
     setPrintJobs(nextPrintJobs);
     setCategories(nextCategories);
+    setProducts(nextProducts);
     setSummary(dbSummary as Record<keyof typeof dbSummary, DatabaseCount['count']>);
     setPaymentSettings(parsePaymentSettings(nextSettings.payment_methods));
     generalForm.reset({
@@ -295,6 +309,22 @@ export default function SettingsScreen() {
       category.name.toLowerCase().includes(normalizedSearch)
     );
   }, [categories, categorySearch]);
+
+  const filteredProducts = useMemo(() => {
+    const normalizedSearch = productSearch.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return products;
+    }
+
+    return products.filter(
+      (product) =>
+        product.name.toLowerCase().includes(normalizedSearch) ||
+        product.sku.toLowerCase().includes(normalizedSearch) ||
+        product.category_name.toLowerCase().includes(normalizedSearch) ||
+        product.barcode?.toLowerCase().includes(normalizedSearch)
+    );
+  }, [productSearch, products]);
 
   async function persist(values: Record<string, string>, successMessage: string) {
     if (!currentUser) {
@@ -405,6 +435,21 @@ export default function SettingsScreen() {
     }
   }
 
+  async function confirmDeleteProduct() {
+    if (!currentUser || !deletingProduct) {
+      return;
+    }
+
+    try {
+      await deleteProduct(db, deletingProduct.id, currentUser.id);
+      setDeletingProduct(null);
+      setMessage('Product deleted.');
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to delete product.');
+    }
+  }
+
   async function savePayments() {
     await persist(
       {
@@ -442,6 +487,47 @@ export default function SettingsScreen() {
     }
   }
 
+  async function exportBackup() {
+    setExportingBackup(true);
+    setMessage(null);
+
+    try {
+      const result = await exportDatabaseBackup(db, {
+        userId: currentUser?.id ?? null,
+        share: true,
+      });
+      setMessage(
+        result.shared
+          ? `Database backup exported: ${result.name}`
+          : `Database backup saved locally: ${result.uri}`
+      );
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Database export failed.');
+    } finally {
+      setExportingBackup(false);
+    }
+  }
+
+  async function importBackup() {
+    setImportingBackup(true);
+    setMessage(null);
+
+    try {
+      const result = await importDatabaseBackup(db, {
+        userId: currentUser?.id ?? null,
+      });
+      setMessage(
+        `Database backup imported from ${result.sourceName}. Safety copy saved at ${result.safetyBackupUri}.`
+      );
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Database import failed.');
+    } finally {
+      setImportingBackup(false);
+    }
+  }
+
   const categoryColumns: TableColumn<CategoryManagementItem>[] = [
     { key: 'name', title: 'Category', accessor: 'name', width: 220 },
     { key: 'sort', title: 'Sort', accessor: 'sort_order', width: 80, align: 'right' },
@@ -475,6 +561,51 @@ export default function SettingsScreen() {
             variant="danger"
             disabled={category.product_count > 0}
             onPress={() => removeCategory(category)}
+          />
+        </View>
+      ),
+    },
+  ];
+
+  const productColumns: TableColumn<ProductListItem>[] = [
+    { key: 'name', title: 'Product', accessor: 'name', width: 220 },
+    { key: 'sku', title: 'SKU', accessor: 'sku', width: 110 },
+    { key: 'category', title: 'Category', accessor: 'category_name', width: 140 },
+    {
+      key: 'price',
+      title: 'Price',
+      width: 110,
+      align: 'right',
+      render: (product) => (
+        <Text style={styles.tableText}>
+          {formatCurrency(product.promo_price ?? product.regular_price)}
+        </Text>
+      ),
+    },
+    { key: 'stock', title: 'Stock', accessor: 'current_stock', width: 90, align: 'right' },
+    {
+      key: 'actions',
+      title: '',
+      width: 180,
+      render: (product) => (
+        <View style={styles.rowActions}>
+          <Button
+            title="Edit"
+            size="sm"
+            variant="outline"
+            onPress={() =>
+              router.push({
+                pathname: '/product-form',
+                params: { productId: String(product.id) },
+              } as never)
+            }
+          />
+          <Button
+            title="Delete"
+            size="sm"
+            variant="danger"
+            disabled={product.current_stock !== 0}
+            onPress={() => setDeletingProduct(product)}
           />
         </View>
       ),
@@ -814,6 +945,29 @@ export default function SettingsScreen() {
               </Card>
             ) : null}
 
+            {selectedSection === 'products' ? (
+              <Card style={styles.formCard}>
+                <Text style={styles.sectionTitle}>Product Management</Text>
+                <Text style={styles.helperText}>
+                  Delete is available only for active products with zero current stock and no
+                  remaining batch quantity.
+                </Text>
+                <Input
+                  label="Search Products"
+                  icon="search-outline"
+                  value={productSearch}
+                  onChangeText={setProductSearch}
+                  placeholder="Search product, SKU, barcode, category..."
+                />
+                <Table
+                  columns={productColumns}
+                  data={filteredProducts}
+                  emptyLabel="No products found."
+                  keyExtractor={(product) => String(product.id)}
+                />
+              </Card>
+            ) : null}
+
             {selectedSection === 'users' ? (
               <Card style={styles.formCard}>
                 <Text style={styles.sectionTitle}>Users & Roles</Text>
@@ -832,8 +986,8 @@ export default function SettingsScreen() {
               <Card style={styles.formCard}>
                 <Text style={styles.sectionTitle}>Backup & Sync</Text>
                 <Text style={styles.helperText}>
-                  Sync is intentionally disabled for this version. Future backup/export workflows
-                  can be added without changing the local SQLite data model.
+                  Sync remains disabled for this version. Export creates a full local SQLite backup
+                  file. Import restores a selected SQLite backup and saves a safety copy first.
                 </Text>
                 <View style={styles.hardwareRow}>
                   <Ionicons name="cloud-offline-outline" size={22} color={palette.inkMuted} />
@@ -843,6 +997,27 @@ export default function SettingsScreen() {
                   </View>
                   <Badge status="inactive" label="No Sync" />
                 </View>
+                <View style={styles.backupActions}>
+                  <Button
+                    title="Export Database"
+                    icon="download-outline"
+                    loading={exportingBackup}
+                    onPress={exportBackup}
+                    style={styles.backupButton}
+                  />
+                  <Button
+                    title="Import Database"
+                    icon="cloud-upload-outline"
+                    variant="outline"
+                    loading={importingBackup}
+                    onPress={importBackup}
+                    style={styles.backupButton}
+                  />
+                </View>
+                <Text style={styles.helperText}>
+                  App updates keep this database in place as long as the app package ID stays the
+                  same and the app is updated over the existing install.
+                </Text>
               </Card>
             ) : null}
 
@@ -937,6 +1112,33 @@ export default function SettingsScreen() {
             ) : null}
           </View>
         </View>
+
+        <Modal
+          visible={deletingProduct != null}
+          title="Delete Product"
+          onClose={() => setDeletingProduct(null)}
+          footer={
+            <View style={styles.modalFooter}>
+              <Button
+                title="Cancel"
+                variant="secondary"
+                onPress={() => setDeletingProduct(null)}
+                style={styles.modalButton}
+              />
+              <Button
+                title="Delete"
+                variant="danger"
+                icon="trash-outline"
+                onPress={confirmDeleteProduct}
+                style={styles.modalButton}
+              />
+            </View>
+          }>
+          <Text style={styles.modalText}>
+            Delete {deletingProduct?.name ?? 'this product'} from active product lists? This is
+            allowed only when stock and batch quantities are zero.
+          </Text>
+        </Modal>
       </RequireRole>
     </AppShell>
   );
@@ -1038,6 +1240,28 @@ const styles = StyleSheet.create({
   rowActions: {
     flexDirection: 'row',
     gap: spacing.xs,
+  },
+  backupActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  backupButton: {
+    minWidth: 180,
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    justifyContent: 'flex-end',
+  },
+  modalButton: {
+    minWidth: 130,
+  },
+  modalText: {
+    color: palette.ink,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 21,
   },
   toggleList: {
     gap: spacing.xs,

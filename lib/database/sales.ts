@@ -210,7 +210,7 @@ export async function completeSale(db: SQLiteDatabase, input: CompleteSaleInput)
         item.unitPrice,
         item.baseUnitPrice,
         item.priceOverrideReason,
-        0,
+        item.discountAmount ?? 0,
         lineTotal
       );
 
@@ -327,6 +327,15 @@ export async function completeSale(db: SQLiteDatabase, input: CompleteSaleInput)
             unitPrice: item.unitPrice,
             reason: item.priceOverrideReason,
           })),
+        promotions: input.items
+          .filter((item) => item.appliedPromotionName && item.discountAmount > 0)
+          .map((item) => ({
+            productId: item.productId,
+            name: item.name,
+            promotionId: item.appliedPromotionId,
+            promotionName: item.appliedPromotionName,
+            discountAmount: item.discountAmount,
+          })),
       })
     );
   });
@@ -424,7 +433,13 @@ export async function adjustSaleItem(
 
   const previousLineTotal = item.quantity * item.unit_price;
   const nextLineTotal = input.newQuantity * input.newUnitPrice;
-  const amountDelta = nextLineTotal - previousLineTotal;
+  const previousDiscountAmount = item.discount_amount ?? 0;
+  const nextDiscountAmount =
+    previousLineTotal > 0
+      ? Math.min(nextLineTotal, previousDiscountAmount * (nextLineTotal / previousLineTotal))
+      : 0;
+  const amountDelta =
+    nextLineTotal - nextDiscountAmount - (previousLineTotal - previousDiscountAmount);
   const quantityDelta = input.newQuantity - item.quantity;
   const restockQuantity = input.restock ? Math.abs(Math.min(0, quantityDelta)) : 0;
 
@@ -506,11 +521,13 @@ export async function adjustSaleItem(
        SET quantity = ?,
            unit_price = ?,
            line_total = ?,
+           discount_amount = ?,
            price_override_reason = COALESCE(price_override_reason, ?)
        WHERE id = ?`,
       input.newQuantity,
       input.newUnitPrice,
       nextLineTotal,
+      nextDiscountAmount,
       input.newUnitPrice !== (item.original_unit_price ?? item.unit_price)
         ? input.reason.trim()
         : null,

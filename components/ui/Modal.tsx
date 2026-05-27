@@ -49,6 +49,7 @@ const styles = StyleSheet.create({
   panel: {
     backgroundColor: palette.surface,
     borderRadius: radii.md,
+    maxHeight: '92%',
     maxWidth: 560,
     overflow: 'hidden',
     width: '100%',
@@ -74,6 +75,7 @@ const styles = StyleSheet.create({
     width: 40,
   },
   body: {
+    flexShrink: 1,
     padding: spacing.md,
   },
   footer: {

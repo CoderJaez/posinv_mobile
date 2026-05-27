@@ -18,6 +18,7 @@ export async function getProducts(db: SQLiteDatabase) {
        products.name,
        products.sku,
        products.barcode,
+       products.category_id,
        categories.name as category_name,
        products.unit,
        products.regular_price,

@@ -160,3 +160,47 @@ export async function updatePromotion(
     );
   });
 }
+
+export async function deletePromotion(
+  db: SQLiteDatabase,
+  input: { promotionId: number; userId: number }
+) {
+  const promotion = await db.getFirstAsync<PromotionListItem>(
+    `SELECT
+       promotions.id,
+       promotions.name,
+       promotions.promo_type,
+       promotions.status,
+       promotions.product_id,
+       products.name as product_name,
+       promotions.category_id,
+       categories.name as category_name,
+       promotions.discount_value,
+       promotions.starts_at,
+       promotions.ends_at,
+       promotions.rule_json,
+       promotions.created_at
+     FROM promotions
+     LEFT JOIN products ON products.id = promotions.product_id
+     LEFT JOIN categories ON categories.id = promotions.category_id
+     WHERE promotions.id = ?`,
+    input.promotionId
+  );
+
+  if (!promotion) {
+    throw new Error('Promotion not found.');
+  }
+
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM promotions WHERE id = ?', input.promotionId);
+    await db.runAsync(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, metadata_json)
+       VALUES (?, ?, ?, ?, ?)`,
+      input.userId,
+      'promotion_deleted',
+      'promotion',
+      input.promotionId,
+      JSON.stringify({ name: promotion.name, status: promotion.status, promoType: promotion.promo_type })
+    );
+  });
+}

@@ -16,6 +16,7 @@ import { Table, type TableColumn } from '@/components/ui/Table';
 import { palette, radii, spacing } from '@/constants/theme';
 import {
   createPromotion,
+  deletePromotion,
   getPromotions,
   updatePromotion,
   type PromotionFormInput,
@@ -106,6 +107,7 @@ export default function PromotionsScreen() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingPromotion, setEditingPromotion] = useState<PromotionListItem | null>(null);
+  const [deletingPromotion, setDeletingPromotion] = useState<PromotionListItem | null>(null);
   const [promoType, setPromoType] = useState<PromotionType>('percentage_discount');
   const [status, setStatus] = useState<PromotionStatus>('active');
   const [targetScope, setTargetScope] = useState<TargetScope>('product');
@@ -232,15 +234,22 @@ export default function PromotionsScreen() {
       {
         key: 'action',
         title: '',
-        width: 80,
+        width: currentUser?.role === 'admin' ? 150 : 80,
         render: (promotion) => (
-          <Pressable onPress={() => openEdit(promotion)} style={styles.iconButton}>
-            <Ionicons name="create-outline" size={18} color={palette.inkMuted} />
-          </Pressable>
+          <View style={styles.actionRow}>
+            <Pressable onPress={() => openEdit(promotion)} style={styles.iconButton}>
+              <Ionicons name="create-outline" size={18} color={palette.inkMuted} />
+            </Pressable>
+            {currentUser?.role === 'admin' ? (
+              <Pressable onPress={() => setDeletingPromotion(promotion)} style={styles.iconButton}>
+                <Ionicons name="trash-outline" size={18} color={palette.danger} />
+              </Pressable>
+            ) : null}
+          </View>
         ),
       },
     ],
-    [openEdit]
+    [currentUser?.role, openEdit]
   );
 
   async function savePromotion(values: PromoFormValues) {
@@ -274,6 +283,24 @@ export default function PromotionsScreen() {
       await refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to save promotion.');
+    }
+  }
+
+  async function confirmDeletePromotion() {
+    if (!currentUser || currentUser.role !== 'admin' || !deletingPromotion) {
+      return;
+    }
+
+    try {
+      await deletePromotion(db, {
+        promotionId: deletingPromotion.id,
+        userId: currentUser.id,
+      });
+      setDeletingPromotion(null);
+      setMessage('Promotion deleted.');
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to delete promotion.');
     }
   }
 
@@ -449,6 +476,33 @@ export default function PromotionsScreen() {
             </View>
           </ScrollView>
         </Modal>
+
+        <Modal
+          visible={deletingPromotion != null}
+          title="Delete Promotion"
+          onClose={() => setDeletingPromotion(null)}
+          footer={
+            <View style={styles.modalFooter}>
+              <Button
+                title="Cancel"
+                variant="secondary"
+                onPress={() => setDeletingPromotion(null)}
+                style={styles.footerButton}
+              />
+              <Button
+                title="Delete"
+                icon="trash-outline"
+                variant="danger"
+                onPress={confirmDeletePromotion}
+                style={styles.footerButton}
+              />
+            </View>
+          }>
+          <Text style={styles.deleteText}>
+            Delete {deletingPromotion?.name ?? 'this promotion'}? Active checkout discounts stop
+            applying immediately after deletion.
+          </Text>
+        </Modal>
       </RequireRole>
     </AppShell>
   );
@@ -592,7 +646,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 36,
   },
+  actionRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
   modal: {
+    maxHeight: '90%',
     maxWidth: 860,
   },
   form: {
@@ -688,5 +747,11 @@ const styles = StyleSheet.create({
     color: palette.danger,
     fontSize: 13,
     fontWeight: '800',
+  },
+  deleteText: {
+    color: palette.ink,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 21,
   },
 });
