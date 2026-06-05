@@ -210,6 +210,7 @@ export type SaleRecord = {
   tax_total: number;
   total: number;
   net_sales: number;
+  void_reason: string | null;
   completed_at: string;
 };
 

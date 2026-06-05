@@ -6,12 +6,19 @@ import {
   phase2MigrationSql,
   phase6MigrationSql,
   productImageMigrationSql,
+  saleVoidAndAutoPrintMigrationSql,
   salesAdjustmentsAndPrintMigrationSql,
   schemaSql,
 } from './schema';
 import { seedDatabase } from './seed';
 
 export const DATABASE_NAME = 'storemate_pos.db';
+
+async function columnExists(db: SQLiteDatabase, tableName: string, columnName: string) {
+  const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${tableName})`);
+
+  return columns.some((column) => column.name === columnName);
+}
 
 export async function initializeDatabase(db: SQLiteDatabase) {
   await db.execAsync('PRAGMA foreign_keys = ON;');
@@ -55,6 +62,15 @@ export async function initializeDatabase(db: SQLiteDatabase) {
 
   if (currentVersion < 6) {
     await db.execAsync(customerModuleMigrationSql);
+    await db.execAsync('PRAGMA user_version = 6;');
+  }
+
+  if (currentVersion < 7) {
+    if (!(await columnExists(db, 'sales', 'void_reason'))) {
+      await db.execAsync('ALTER TABLE sales ADD COLUMN void_reason TEXT;');
+    }
+
+    await db.execAsync(saleVoidAndAutoPrintMigrationSql);
     await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION};`);
   }
 }

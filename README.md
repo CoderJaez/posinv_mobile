@@ -38,12 +38,16 @@ Implemented:
 - Start shift flow
 - End shift flow
 - Shift summary screen
+- Shift sales transaction table
+- Cashier-initiated sold transaction adjustment with active admin PIN approval
+- Cashier-initiated sale void with active admin PIN approval
+- Sale void restock choice: return items to stock or remove without stock return
 - Opening balance
 - Expected cash
 - Actual cash
 - Cash variance
 - Cash in/out tracking
-- Audit log writes for login, failed login, shift start, shift end, and cash drawer movements
+- Audit log writes for login, failed login, shift start, shift end, cash drawer movements, sale adjustments, and sale voids
 - Admin-only User Management screen with user and recent shift tables
 
 ### Phase 3: POS Checkout
@@ -65,6 +69,7 @@ Implemented:
 - Payment method screen
 - Cash payment screen with change calculation
 - Payment success screen
+- Automatic receipt print attempt after payment when Settings > Hardware has auto print enabled and a printer profile configured
 - Payment methods:
   - Cash
   - Card
@@ -193,6 +198,7 @@ Implemented:
 - Admin product management with search and zero-stock delete controls
 - Printing module management
 - Local printer profile for Bluetooth or system print mode
+- Auto-print after payment toggle
 - Receipt print jobs logged locally through `print_jobs`
 - Receipt printing through Expo's local print pipeline for paired/available receipt printers
 - Users & roles shortcut

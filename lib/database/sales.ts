@@ -11,6 +11,7 @@ import type {
   SaleAdjustment,
   SaleItemRecord,
   SaleRecord,
+  SalesReportRow,
 } from './types';
 
 type CompleteSaleInput = {
@@ -384,6 +385,34 @@ export async function getSaleAdjustments(db: SQLiteDatabase, saleId: number) {
   );
 }
 
+export async function getSalesForShift(db: SQLiteDatabase, shiftId: number) {
+  return db.getAllAsync<SalesReportRow>(
+    `SELECT
+       sales.*,
+       users.full_name as cashier_name,
+       COALESCE(item_totals.item_count, 0) as item_count,
+       COALESCE(adjustment_totals.adjustment_count, 0) as adjustment_count,
+       GROUP_CONCAT(DISTINCT payments.method) as payment_methods
+     FROM sales
+     INNER JOIN users ON users.id = sales.cashier_id
+     LEFT JOIN (
+       SELECT sale_id, SUM(quantity) as item_count
+       FROM sale_items
+       GROUP BY sale_id
+     ) item_totals ON item_totals.sale_id = sales.id
+     LEFT JOIN (
+       SELECT sale_id, COUNT(*) as adjustment_count
+       FROM sale_adjustments
+       GROUP BY sale_id
+     ) adjustment_totals ON adjustment_totals.sale_id = sales.id
+     LEFT JOIN payments ON payments.sale_id = sales.id
+     WHERE sales.shift_id = ?
+     GROUP BY sales.id
+     ORDER BY sales.completed_at DESC`,
+    shiftId
+  );
+}
+
 export async function adjustSaleItem(
   db: SQLiteDatabase,
   input: {
@@ -394,6 +423,7 @@ export async function adjustSaleItem(
     restock: boolean;
     reason: string;
     userId: number;
+    requestedByUserId?: number | null;
   }
 ) {
   if (input.newQuantity < 0) {
@@ -613,6 +643,189 @@ export async function adjustSaleItem(
         amountDelta,
         restock: input.restock,
         reason: input.reason.trim(),
+        approvedBy: input.userId,
+        requestedBy: input.requestedByUserId ?? input.userId,
+      })
+    );
+  });
+}
+
+export async function voidSaleTransaction(
+  db: SQLiteDatabase,
+  input: {
+    saleId: number;
+    restock: boolean;
+    reason: string;
+    userId: number;
+    requestedByUserId?: number | null;
+  }
+) {
+  if (!input.reason.trim()) {
+    throw new Error('Void reason is required.');
+  }
+
+  const sale = await db.getFirstAsync<SaleRecord>(
+    'SELECT * FROM sales WHERE id = ?',
+    input.saleId
+  );
+
+  if (!sale || sale.status !== 'completed') {
+    throw new Error('Only completed sales can be voided.');
+  }
+
+  const items = await db.getAllAsync<SaleItemRecord>(
+    'SELECT * FROM sale_items WHERE sale_id = ? AND quantity > 0 ORDER BY id ASC',
+    input.saleId
+  );
+
+  if (items.length === 0) {
+    throw new Error('This sale has no remaining items to void.');
+  }
+
+  await db.withTransactionAsync(async () => {
+    const adjustmentIds: number[] = [];
+
+    for (const item of items) {
+      const quantityDelta = -item.quantity;
+      const lineNetTotal = Math.max(0, item.line_total - (item.discount_amount ?? 0));
+      let previousStock = 0;
+      let newStock = 0;
+      let returnBatchId: number | null = null;
+
+      if (input.restock) {
+        const stock = await db.getFirstAsync<{ current_stock: number }>(
+          'SELECT current_stock FROM products WHERE id = ?',
+          item.product_id
+        );
+        previousStock = stock?.current_stock ?? 0;
+        newStock = previousStock + item.quantity;
+
+        const batchNumber = `VOID-${input.saleId}-${item.product_id}`;
+        const existingBatch = await db.getFirstAsync<{ id: number }>(
+          'SELECT id FROM inventory_batches WHERE product_id = ? AND batch_number = ?',
+          item.product_id,
+          batchNumber
+        );
+
+        if (existingBatch) {
+          returnBatchId = existingBatch.id;
+          await db.runAsync(
+            'UPDATE inventory_batches SET quantity = quantity + ? WHERE id = ?',
+            item.quantity,
+            existingBatch.id
+          );
+        } else {
+          const batchResult = await db.runAsync(
+            `INSERT INTO inventory_batches (product_id, batch_number, quantity, unit_cost)
+             VALUES (?, ?, ?, ?)`,
+            item.product_id,
+            batchNumber,
+            item.quantity,
+            0
+          );
+          returnBatchId = batchResult.lastInsertRowId;
+        }
+
+        await db.runAsync(
+          `UPDATE products
+           SET current_stock = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          newStock,
+          item.product_id
+        );
+
+        await db.runAsync(
+          `INSERT INTO stock_movements
+            (product_id, batch_id, shift_id, movement_type, quantity, previous_stock, new_stock, reason, reference_type, reference_id, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          item.product_id,
+          returnBatchId,
+          sale.shift_id,
+          'return',
+          item.quantity,
+          previousStock,
+          newStock,
+          input.reason.trim(),
+          'sale_void',
+          input.saleId,
+          input.userId
+        );
+      }
+
+      await db.runAsync(
+        `UPDATE sale_items
+         SET quantity = 0,
+             line_total = 0,
+             discount_amount = 0
+         WHERE id = ?`,
+        item.id
+      );
+
+      const adjustmentResult = await db.runAsync(
+        `INSERT INTO sale_adjustments
+          (sale_id, sale_item_id, product_id, adjustment_type, previous_quantity, new_quantity, quantity_delta, previous_unit_price, new_unit_price, amount_delta, restock, reason, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        input.saleId,
+        item.id,
+        item.product_id,
+        'remove_item',
+        item.quantity,
+        0,
+        quantityDelta,
+        item.unit_price,
+        item.unit_price,
+        -lineNetTotal,
+        input.restock ? 1 : 0,
+        input.reason.trim(),
+        input.userId
+      );
+      adjustmentIds.push(adjustmentResult.lastInsertRowId);
+    }
+
+    await db.runAsync(
+      `UPDATE sales
+       SET status = 'voided',
+           subtotal = 0,
+           discount_total = 0,
+           total = 0,
+           net_sales = 0,
+           void_reason = ?
+       WHERE id = ?`,
+      input.reason.trim(),
+      input.saleId
+    );
+
+    const cashPayment = await db.getFirstAsync<{ amount: number }>(
+      `SELECT amount FROM payments
+       WHERE sale_id = ? AND method = 'cash'
+       LIMIT 1`,
+      input.saleId
+    );
+
+    if (cashPayment && sale.shift_id && sale.total > 0) {
+      await db.runAsync(
+        'UPDATE shifts SET expected_cash = expected_cash - ? WHERE id = ?',
+        sale.total,
+        sale.shift_id
+      );
+    }
+
+    await db.runAsync(
+      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, metadata_json)
+       VALUES (?, ?, ?, ?, ?)`,
+      input.userId,
+      'sale_voided',
+      'sale',
+      input.saleId,
+      JSON.stringify({
+        receiptNumber: sale.receipt_number,
+        previousTotal: sale.total,
+        itemCount: items.length,
+        adjustmentIds,
+        restock: input.restock,
+        reason: input.reason.trim(),
+        approvedBy: input.userId,
+        requestedBy: input.requestedByUserId ?? input.userId,
       })
     );
   });

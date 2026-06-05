@@ -1,8 +1,8 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { hashPin } from '@/lib/auth/pin';
+import { hashPin, verifyPin } from '@/lib/auth/pin';
 
-import type { UserRole } from './types';
+import type { AuthUser, UserRole } from './types';
 
 export type UserFormInput = {
   fullName: string;
@@ -188,4 +188,26 @@ export async function updateUser(
       })
     );
   });
+}
+
+export async function verifyAdminPin(db: SQLiteDatabase, pin: string) {
+  if (!/^\d{4,6}$/.test(pin.trim())) {
+    throw new Error('Enter a valid admin PIN.');
+  }
+
+  const admins = await db.getAllAsync<AuthUser>(
+    `SELECT id, full_name, username, pin_hash, role, status, last_login_at, avatar_color
+     FROM users
+     WHERE role = 'admin'
+       AND status = 'active'
+     ORDER BY id ASC`
+  );
+
+  for (const admin of admins) {
+    if (await verifyPin(pin.trim(), admin.pin_hash)) {
+      return admin;
+    }
+  }
+
+  throw new Error('Admin PIN was not accepted.');
 }

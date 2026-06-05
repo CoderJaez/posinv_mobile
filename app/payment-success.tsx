@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { AppShell } from '@/components/layout/AppShell';
@@ -11,7 +11,7 @@ import { palette, spacing } from '@/constants/theme';
 import { getSaleById } from '@/lib/database/sales';
 import type { SaleRecord } from '@/lib/database/types';
 import { formatCurrency, formatDateTime } from '@/lib/format';
-import { printReceiptForSale } from '@/lib/printing/receipt';
+import { autoPrintReceiptForSale, printReceiptForSale } from '@/lib/printing/receipt';
 import { useAppStore } from '@/lib/store/app-store';
 
 export default function PaymentSuccessScreen() {
@@ -22,6 +22,7 @@ export default function PaymentSuccessScreen() {
   const [sale, setSale] = useState<SaleRecord | null>(null);
   const [printMessage, setPrintMessage] = useState<string | null>(null);
   const [printing, setPrinting] = useState(false);
+  const autoPrintAttempted = useRef(false);
   const saleId = Number(params.saleId);
   const changeDue = Number(params.changeDue ?? 0);
 
@@ -32,6 +33,26 @@ export default function PaymentSuccessScreen() {
 
     getSaleById(db, saleId).then(setSale);
   }, [db, saleId]);
+
+  useEffect(() => {
+    if (!sale || autoPrintAttempted.current) {
+      return;
+    }
+
+    autoPrintAttempted.current = true;
+    setPrinting(true);
+
+    autoPrintReceiptForSale(db, { saleId: sale.id, userId: currentUser?.id ?? null })
+      .then((result) => {
+        setPrintMessage(result.message);
+      })
+      .catch((error) => {
+        setPrintMessage(error instanceof Error ? error.message : 'Unable to auto print receipt.');
+      })
+      .finally(() => {
+        setPrinting(false);
+      });
+  }, [currentUser?.id, db, sale]);
 
   return (
     <AppShell title="Payment Success" subtitle="Sale saved locally and inventory deducted">

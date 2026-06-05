@@ -1,4 +1,4 @@
-export const DATABASE_VERSION = 6;
+export const DATABASE_VERSION = 7;
 
 export const seedPinHashes = {
   '1234': 'sha256:7c945c5f416ccab502046c840c08f67d5aa1dac293641dd4574d84cc01998146',
@@ -534,4 +534,9 @@ VALUES
 
 CREATE INDEX IF NOT EXISTS idx_customers_status ON customers(status);
 CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(full_name);
+`;
+
+export const saleVoidAndAutoPrintMigrationSql = `
+INSERT OR IGNORE INTO app_settings (key, value)
+VALUES ('receipt_auto_print', 'true');
 `;

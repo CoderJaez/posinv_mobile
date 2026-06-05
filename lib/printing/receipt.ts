@@ -30,6 +30,19 @@ function getPaperWidth(settings: Record<string, string>) {
   return /^\d+(\.\d+)?(mm|px|in)$/i.test(width) ? width : '58mm';
 }
 
+function getConfiguredPrinterName(settings: Record<string, string>) {
+  return (
+    settings.printer_name ||
+    (settings.hardware_printer && settings.hardware_printer !== 'Not configured'
+      ? settings.hardware_printer
+      : null)
+  );
+}
+
+function isAutoPrintEnabled(settings: Record<string, string>) {
+  return settings.receipt_auto_print !== 'false' && Boolean(getConfiguredPrinterName(settings));
+}
+
 export function buildReceiptText(sale: SaleRecord, items: SaleItemRecord[], settings: Record<string, string>) {
   const lines = [
     settings.receipt_header || settings.store_name || 'StoreMate Convenience Store',
@@ -117,11 +130,60 @@ export async function printReceiptForSale(
     throw new Error('Sale not found.');
   }
 
-  const configuredPrinterName =
-    settings.printer_name ||
-    (settings.hardware_printer && settings.hardware_printer !== 'Not configured'
-      ? settings.hardware_printer
-      : null);
+  return sendReceiptToPrinter(db, {
+    sale,
+    items,
+    settings,
+    userId: input.userId ?? null,
+  });
+}
+
+export async function autoPrintReceiptForSale(
+  db: SQLiteDatabase,
+  input: { saleId: number; userId?: number | null }
+) {
+  const [sale, items, settings] = await Promise.all([
+    getSaleById(db, input.saleId),
+    getSaleItems(db, input.saleId),
+    getSettingsMap(db),
+  ]);
+
+  if (!sale) {
+    throw new Error('Sale not found.');
+  }
+
+  if (!isAutoPrintEnabled(settings)) {
+    return {
+      status: 'skipped' as const,
+      message: 'Auto print skipped. Configure receipt printer and enable auto print in Settings.',
+    };
+  }
+
+  const printJobId = await sendReceiptToPrinter(db, {
+    sale,
+    items,
+    settings,
+    userId: input.userId ?? null,
+  });
+
+  return {
+    status: 'sent' as const,
+    printJobId,
+    message: 'Receipt sent to configured printer.',
+  };
+}
+
+async function sendReceiptToPrinter(
+  db: SQLiteDatabase,
+  input: {
+    sale: SaleRecord;
+    items: SaleItemRecord[];
+    settings: Record<string, string>;
+    userId?: number | null;
+  }
+) {
+  const { sale, items, settings } = input;
+  const configuredPrinterName = getConfiguredPrinterName(settings);
   const payloadText = buildReceiptText(sale, items, settings);
   const printJobId = await createPrintJob(db, {
     saleId: sale.id,

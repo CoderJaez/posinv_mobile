@@ -4,21 +4,31 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { AdminPinModal } from '@/components/auth/AdminPinModal';
 import { AppShell } from '@/components/layout/AppShell';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
 import { Table, type TableColumn } from '@/components/ui/Table';
 import { palette, spacing } from '@/constants/theme';
+import { getSalesForShift, voidSaleTransaction } from '@/lib/database/sales';
 import {
   addCashDrawerMovement,
   endShift,
   getOpenShiftForUser,
   getShiftSummary,
 } from '@/lib/database/shifts';
-import type { CashDrawerMovement, CashDrawerMovementType, ShiftSummary } from '@/lib/database/types';
+import type {
+  AuthUser,
+  CashDrawerMovement,
+  CashDrawerMovementType,
+  SalesReportRow,
+  ShiftSummary,
+} from '@/lib/database/types';
 import { formatCurrency, formatDateTime } from '@/lib/format';
+import { printReceiptForSale } from '@/lib/printing/receipt';
 import { useAppStore } from '@/lib/store/app-store';
 
 type CashMovementForm = {
@@ -67,7 +77,14 @@ export default function ShiftSummaryScreen() {
   const currentShift = useAppStore((state) => state.currentShift);
   const setCurrentShift = useAppStore((state) => state.setCurrentShift);
   const [summary, setSummary] = useState<ShiftSummary | null>(null);
+  const [sales, setSales] = useState<SalesReportRow[]>([]);
+  const [voidingSale, setVoidingSale] = useState<SalesReportRow | null>(null);
+  const [voidReason, setVoidReason] = useState('');
+  const [voidRestock, setVoidRestock] = useState(true);
+  const [pinPromptVisible, setPinPromptVisible] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [savingVoid, setSavingVoid] = useState(false);
+  const [printingSaleId, setPrintingSaleId] = useState<number | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const shiftId = useMemo(() => {
@@ -96,13 +113,18 @@ export default function ShiftSummaryScreen() {
   const refreshSummary = useCallback(async () => {
     if (!shiftId) {
       setSummary(null);
+      setSales([]);
       setLoading(false);
       return;
     }
 
     setLoading(true);
-    const nextSummary = await getShiftSummary(db, shiftId);
+    const [nextSummary, nextSales] = await Promise.all([
+      getShiftSummary(db, shiftId),
+      getSalesForShift(db, shiftId),
+    ]);
     setSummary(nextSummary);
+    setSales(nextSales);
     setLoading(false);
 
     if (nextSummary && nextSummary.status === 'open') {
@@ -118,6 +140,109 @@ export default function ShiftSummaryScreen() {
   useEffect(() => {
     refreshSummary();
   }, [refreshSummary]);
+
+  const printSaleReceipt = useCallback(
+    async (sale: SalesReportRow) => {
+      setPrintingSaleId(sale.id);
+      setMessage(null);
+
+      try {
+        await printReceiptForSale(db, { saleId: sale.id, userId: currentUser?.id ?? null });
+        setMessage(`Receipt ${sale.receipt_number} sent to printer.`);
+        await refreshSummary();
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : 'Unable to print receipt.');
+      } finally {
+        setPrintingSaleId(null);
+      }
+    },
+    [currentUser?.id, db, refreshSummary]
+  );
+
+  const saleColumns = useMemo<TableColumn<SalesReportRow>[]>(
+    () => [
+      { key: 'receipt', title: 'Receipt', accessor: 'receipt_number', width: 150 },
+      {
+        key: 'time',
+        title: 'Time',
+        width: 170,
+        render: (sale) => <Text style={styles.tableText}>{formatDateTime(sale.completed_at)}</Text>,
+      },
+      {
+        key: 'status',
+        title: 'Status',
+        width: 110,
+        render: (sale) => (
+          <Badge
+            status={sale.status === 'completed' ? 'active' : 'critical'}
+            label={sale.status.toUpperCase()}
+          />
+        ),
+      },
+      { key: 'items', title: 'Items', accessor: 'item_count', width: 80, align: 'right' },
+      {
+        key: 'payments',
+        title: 'Payment',
+        accessor: 'payment_methods',
+        width: 120,
+      },
+      {
+        key: 'total',
+        title: 'Total',
+        width: 120,
+        align: 'right',
+        render: (sale) => <Text style={styles.tableText}>{formatCurrency(sale.total)}</Text>,
+      },
+      {
+        key: 'adjustments',
+        title: 'Adjustments',
+        accessor: 'adjustment_count',
+        width: 110,
+        align: 'right',
+      },
+      {
+        key: 'actions',
+        title: '',
+        width: 260,
+        render: (sale) => (
+          <View style={styles.rowActions}>
+            <Button
+              title="Adjust"
+              size="sm"
+              variant="outline"
+              disabled={sale.status !== 'completed'}
+              onPress={() =>
+                router.push({
+                  pathname: '/sale-adjustment',
+                  params: { saleId: String(sale.id) },
+                } as never)
+              }
+            />
+            <Button
+              title="Void"
+              size="sm"
+              variant="danger"
+              disabled={sale.status !== 'completed'}
+              onPress={() => {
+                setVoidingSale(sale);
+                setVoidReason('');
+                setVoidRestock(true);
+                setMessage(null);
+              }}
+            />
+            <Button
+              title="Print"
+              size="sm"
+              variant="secondary"
+              loading={printingSaleId === sale.id}
+              onPress={() => printSaleReceipt(sale)}
+            />
+          </View>
+        ),
+      },
+    ],
+    [printSaleReceipt, printingSaleId, router]
+  );
 
   async function submitMovement(type: CashDrawerMovementType, values: CashMovementForm) {
     if (!currentUser || !summary) {
@@ -154,6 +279,51 @@ export default function ShiftSummaryScreen() {
     await setCurrentShift(null);
     setMessage('Shift closed and cash drawer summary saved.');
     await refreshSummary();
+  }
+
+  function requestVoidApproval() {
+    if (!voidingSale) {
+      return;
+    }
+
+    if (!voidReason.trim()) {
+      setMessage('Void reason is required.');
+      return;
+    }
+
+    setPinPromptVisible(true);
+  }
+
+  async function authorizeVoid(admin: AuthUser) {
+    if (!currentUser || !voidingSale) {
+      return;
+    }
+
+    setSavingVoid(true);
+    setMessage(null);
+
+    try {
+      await voidSaleTransaction(db, {
+        saleId: voidingSale.id,
+        restock: voidRestock,
+        reason: voidReason,
+        userId: admin.id,
+        requestedByUserId: currentUser.id,
+      });
+
+      const updatedShift = await getOpenShiftForUser(db, currentUser.id);
+      await setCurrentShift(updatedShift);
+      setMessage(`Receipt ${voidingSale.receipt_number} voided.`);
+      setPinPromptVisible(false);
+      setVoidingSale(null);
+      setVoidReason('');
+      await refreshSummary();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to void sale.');
+      throw error;
+    } finally {
+      setSavingVoid(false);
+    }
   }
 
   const expectedCash = summary
@@ -325,6 +495,24 @@ export default function ShiftSummaryScreen() {
 
           <Card padded={false}>
             <View style={styles.tableHeader}>
+              <View>
+                <Text style={styles.title}>Sales Transactions</Text>
+                <Text style={styles.mutedText}>
+                  Transactions handled by {summary.cashier_name} during this shift.
+                </Text>
+              </View>
+              <Badge status="inactive" label={`${sales.length} rows`} />
+            </View>
+            <Table
+              columns={saleColumns}
+              data={sales}
+              emptyLabel="No sales recorded for this shift yet."
+              keyExtractor={(sale) => String(sale.id)}
+            />
+          </Card>
+
+          <Card padded={false}>
+            <View style={styles.tableHeader}>
               <Text style={styles.title}>Cash Movement History</Text>
             </View>
             <Table
@@ -334,6 +522,75 @@ export default function ShiftSummaryScreen() {
               keyExtractor={(movement) => String(movement.id)}
             />
           </Card>
+
+          <Modal
+            visible={Boolean(voidingSale)}
+            title="Void Sale Transaction"
+            onClose={() => {
+              if (savingVoid) {
+                return;
+              }
+              setVoidingSale(null);
+              setVoidReason('');
+            }}
+            footer={
+              <View style={styles.modalFooter}>
+                <Button
+                  title="Cancel"
+                  variant="secondary"
+                  disabled={savingVoid}
+                  onPress={() => {
+                    setVoidingSale(null);
+                    setVoidReason('');
+                  }}
+                  style={styles.modalButton}
+                />
+                <Button
+                  title="Ask Admin PIN"
+                  icon="key-outline"
+                  variant="danger"
+                  loading={savingVoid}
+                  onPress={requestVoidApproval}
+                  style={styles.modalButton}
+                />
+              </View>
+            }>
+            <View style={styles.voidPrompt}>
+              <Text style={styles.modalText}>
+                Receipt {voidingSale?.receipt_number ?? '-'} will be marked void and removed from
+                completed sales totals after admin approval.
+              </Text>
+              <Input
+                label="Void Reason"
+                value={voidReason}
+                onChangeText={setVoidReason}
+                placeholder="Wrong order, cancelled sale, damaged/expired item"
+              />
+              <View style={styles.choiceRow}>
+                <Button
+                  title="Return to Stock"
+                  variant={voidRestock ? 'primary' : 'outline'}
+                  onPress={() => setVoidRestock(true)}
+                  style={styles.choiceButton}
+                />
+                <Button
+                  title="Remove from Stock"
+                  variant={!voidRestock ? 'primary' : 'outline'}
+                  onPress={() => setVoidRestock(false)}
+                  style={styles.choiceButton}
+                />
+              </View>
+            </View>
+          </Modal>
+
+          <AdminPinModal
+            visible={pinPromptVisible}
+            actionLabel="Void Sale"
+            loading={savingVoid}
+            message="Enter an active admin PIN to approve this sale void."
+            onClose={() => setPinPromptVisible(false)}
+            onAuthorized={authorizeVoid}
+          />
         </>
       )}
     </AppShell>
@@ -452,6 +709,10 @@ const styles = StyleSheet.create({
     maxWidth: 520,
   },
   tableHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+    justifyContent: 'space-between',
     padding: spacing.md,
   },
   tableText: {
@@ -469,5 +730,37 @@ const styles = StyleSheet.create({
     color: palette.primaryDark,
     fontSize: 13,
     fontWeight: '900',
+  },
+  rowActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    justifyContent: 'flex-end',
+  },
+  modalButton: {
+    minWidth: 140,
+  },
+  modalText: {
+    color: palette.ink,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 21,
+  },
+  voidPrompt: {
+    gap: spacing.md,
+  },
+  choiceRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  choiceButton: {
+    flexGrow: 1,
+    minWidth: 180,
   },
 });

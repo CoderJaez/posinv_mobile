@@ -4,6 +4,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { AdminPinModal } from '@/components/auth/AdminPinModal';
 import { RequireRole } from '@/components/auth/RequireRole';
 import { AppShell } from '@/components/layout/AppShell';
 import { Badge } from '@/components/ui/Badge';
@@ -17,8 +18,9 @@ import {
   getSaleAdjustments,
   getSaleById,
   getSaleItems,
+  voidSaleTransaction,
 } from '@/lib/database/sales';
-import type { SaleAdjustment, SaleItemRecord, SaleRecord } from '@/lib/database/types';
+import type { AuthUser, SaleAdjustment, SaleItemRecord, SaleRecord } from '@/lib/database/types';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { useAppStore } from '@/lib/store/app-store';
 
@@ -66,6 +68,8 @@ const adjustmentColumns: TableColumn<SaleAdjustment>[] = [
   },
 ];
 
+type PendingApprovalAction = 'adjust' | 'void' | null;
+
 export default function SaleAdjustmentScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
@@ -80,6 +84,9 @@ export default function SaleAdjustmentScreen() {
   const [newUnitPrice, setNewUnitPrice] = useState('');
   const [reason, setReason] = useState('');
   const [restock, setRestock] = useState(true);
+  const [voidReason, setVoidReason] = useState('');
+  const [voidRestock, setVoidRestock] = useState(true);
+  const [pendingApproval, setPendingApproval] = useState<PendingApprovalAction>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -121,11 +128,17 @@ export default function SaleAdjustmentScreen() {
         title: '',
         width: 110,
         render: (item) => (
-          <Button title="Adjust" size="sm" variant="outline" onPress={() => selectItem(item)} />
+          <Button
+            title="Adjust"
+            size="sm"
+            variant="outline"
+            disabled={sale?.status !== 'completed' || item.quantity <= 0}
+            onPress={() => selectItem(item)}
+          />
         ),
       },
     ],
-    [selectItem]
+    [sale?.status, selectItem]
   );
 
   const refresh = useCallback(async () => {
@@ -149,7 +162,25 @@ export default function SaleAdjustmentScreen() {
     }, [refresh])
   );
 
-  async function saveAdjustment() {
+  function requestAdjustmentApproval() {
+    if (!currentUser || !selectedItem) {
+      return;
+    }
+
+    if (!Number.isFinite(Number(newQuantity)) || !Number.isFinite(Number(newUnitPrice))) {
+      setMessage('Enter a valid quantity and unit price.');
+      return;
+    }
+
+    if (!reason.trim()) {
+      setMessage('Adjustment reason is required.');
+      return;
+    }
+
+    setPendingApproval('adjust');
+  }
+
+  async function saveAdjustment(admin: AuthUser) {
     if (!currentUser || !selectedItem) {
       return;
     }
@@ -165,15 +196,72 @@ export default function SaleAdjustmentScreen() {
         newUnitPrice: Number(newUnitPrice),
         restock,
         reason,
-        userId: currentUser.id,
+        userId: admin.id,
+        requestedByUserId: currentUser.id,
       });
       setMessage('Sale item adjustment saved.');
       setSelectedItemId(null);
+      setPendingApproval(null);
       await refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to adjust sale item.');
+      throw error;
     } finally {
       setSaving(false);
+    }
+  }
+
+  function requestVoidApproval() {
+    if (!sale || sale.status !== 'completed') {
+      setMessage('Only completed sales can be voided.');
+      return;
+    }
+
+    if (!voidReason.trim()) {
+      setMessage('Void reason is required.');
+      return;
+    }
+
+    setPendingApproval('void');
+  }
+
+  async function voidSale(admin: AuthUser) {
+    if (!currentUser || !sale) {
+      return;
+    }
+
+    setSaving(true);
+    setMessage(null);
+
+    try {
+      await voidSaleTransaction(db, {
+        saleId,
+        restock: voidRestock,
+        reason: voidReason,
+        userId: admin.id,
+        requestedByUserId: currentUser.id,
+      });
+      setMessage('Sale transaction voided.');
+      setSelectedItemId(null);
+      setVoidReason('');
+      setPendingApproval(null);
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to void sale transaction.');
+      throw error;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function authorizePendingAction(admin: AuthUser) {
+    if (pendingApproval === 'adjust') {
+      await saveAdjustment(admin);
+      return;
+    }
+
+    if (pendingApproval === 'void') {
+      await voidSale(admin);
     }
   }
 
@@ -182,12 +270,19 @@ export default function SaleAdjustmentScreen() {
       title="Adjust Sold Transaction"
       subtitle={sale ? `Receipt ${sale.receipt_number}` : 'Update sold items'}
       actions={<Button title="Back" variant="secondary" icon="arrow-back" onPress={() => router.back()} />}>
-      <RequireRole roles={['supervisor', 'admin']}>
+      <RequireRole roles={['cashier', 'supervisor', 'admin']}>
         {sale ? (
           <View style={styles.metrics}>
             <Metric label="Receipt Total" value={formatCurrency(sale.total)} />
             <Metric label="Net Sales" value={formatCurrency(sale.net_sales)} />
             <Metric label="Completed" value={formatDateTime(sale.completed_at)} />
+            <Card style={styles.metric}>
+              <Text style={styles.metricLabel}>Status</Text>
+              <Badge
+                status={sale.status === 'completed' ? 'active' : 'critical'}
+                label={sale.status.toUpperCase()}
+              />
+            </Card>
           </View>
         ) : null}
 
@@ -251,7 +346,58 @@ export default function SaleAdjustmentScreen() {
               title="Save Adjustment"
               icon="save-outline"
               loading={saving}
-              onPress={saveAdjustment}
+              disabled={sale?.status !== 'completed'}
+              onPress={requestAdjustmentApproval}
+            />
+          </Card>
+        ) : null}
+
+        {sale ? (
+          <Card style={styles.formCard}>
+            <View style={styles.tableHeaderInline}>
+              <View style={styles.flexCopy}>
+                <Text style={styles.sectionTitle}>Void Entire Transaction</Text>
+                <Text style={styles.mutedText}>
+                  Voiding cancels the sale and records item removals in the adjustment log.
+                </Text>
+              </View>
+              <Badge
+                status={sale.status === 'completed' ? 'active' : 'inactive'}
+                label={sale.status === 'completed' ? 'Available' : 'Closed'}
+              />
+            </View>
+            <Input
+              label="Void Reason"
+              value={voidReason}
+              onChangeText={setVoidReason}
+              placeholder="Wrong sale, cancelled order, damaged/expired item"
+              editable={sale.status === 'completed'}
+            />
+            <View style={styles.pillRow}>
+              <Pressable
+                disabled={sale.status !== 'completed'}
+                onPress={() => setVoidRestock(true)}
+                style={[styles.pill, voidRestock && styles.pillActive]}>
+                <Text style={[styles.pillText, voidRestock && styles.pillTextActive]}>
+                  Return all items to stock
+                </Text>
+              </Pressable>
+              <Pressable
+                disabled={sale.status !== 'completed'}
+                onPress={() => setVoidRestock(false)}
+                style={[styles.pill, !voidRestock && styles.pillActive]}>
+                <Text style={[styles.pillText, !voidRestock && styles.pillTextActive]}>
+                  Remove without stock return
+                </Text>
+              </Pressable>
+            </View>
+            <Button
+              title="Void Transaction"
+              icon="close-circle-outline"
+              variant="danger"
+              loading={saving && pendingApproval === 'void'}
+              disabled={sale.status !== 'completed'}
+              onPress={requestVoidApproval}
             />
           </Card>
         ) : null}
@@ -267,6 +413,18 @@ export default function SaleAdjustmentScreen() {
             keyExtractor={(adjustment) => String(adjustment.id)}
           />
         </Card>
+        <AdminPinModal
+          visible={pendingApproval != null}
+          actionLabel={pendingApproval === 'void' ? 'Void Sale' : 'Save Adjustment'}
+          loading={saving}
+          message={
+            pendingApproval === 'void'
+              ? 'Enter an active admin PIN to void this transaction.'
+              : 'Enter an active admin PIN to approve this sold item adjustment.'
+          }
+          onClose={() => setPendingApproval(null)}
+          onAuthorized={authorizePendingAction}
+        />
       </RequireRole>
     </AppShell>
   );
@@ -307,6 +465,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     padding: spacing.md,
+  },
+  tableHeaderInline: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+    justifyContent: 'space-between',
+  },
+  flexCopy: {
+    flex: 1,
+    gap: spacing.xs,
+    minWidth: 0,
   },
   sectionTitle: {
     color: palette.ink,

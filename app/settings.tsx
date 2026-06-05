@@ -1,22 +1,29 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
-import { useSQLiteContext } from 'expo-sqlite';
-import type { ComponentProps } from 'react';
-import { useCallback, useMemo, useState } from 'react';
-import { Controller, useForm } from 'react-hook-form';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
+import { useRouter } from "expo-router";
+import { useSQLiteContext } from "expo-sqlite";
+import type { ComponentProps } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { Controller, useForm } from "react-hook-form";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { RequireRole } from '@/components/auth/RequireRole';
-import { AppShell } from '@/components/layout/AppShell';
-import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { Modal } from '@/components/ui/Modal';
-import { Table, type TableColumn } from '@/components/ui/Table';
-import { palette, radii, spacing } from '@/constants/theme';
-import { exportDatabaseBackup, importDatabaseBackup } from '@/lib/database/backup';
+import { RequireRole } from "@/components/auth/RequireRole";
+import { AppShell } from "@/components/layout/AppShell";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Input } from "@/components/ui/Input";
+import { Modal } from "@/components/ui/Modal";
+import { Table, type TableColumn } from "@/components/ui/Table";
+import { palette, radii, spacing } from "@/constants/theme";
+import {
+  exportDatabaseBackup,
+  importDatabaseBackup,
+} from "@/lib/database/backup";
+import {
+  runDatabaseIntegrityCheck,
+  type DatabaseHealthCheck,
+} from "@/lib/database/health";
 import {
   createCategory,
   deleteCategory,
@@ -25,11 +32,14 @@ import {
   getProductManagementItems,
   updateCategory,
   type CategoryInput,
-} from '@/lib/database/inventory';
-import { getRecentPrintJobs } from '@/lib/database/printing';
-import { runDatabaseIntegrityCheck, type DatabaseHealthCheck } from '@/lib/database/health';
-import { getDatabaseSummary } from '@/lib/database/queries';
-import { getAuditLogs, getSettingsMap, saveSettings } from '@/lib/database/settings';
+} from "@/lib/database/inventory";
+import { getRecentPrintJobs } from "@/lib/database/printing";
+import { getDatabaseSummary } from "@/lib/database/queries";
+import {
+  getAuditLogs,
+  getSettingsMap,
+  saveSettings,
+} from "@/lib/database/settings";
 import type {
   AuditLogItem,
   CategoryManagementItem,
@@ -37,23 +47,23 @@ import type {
   PaymentMethod,
   PrintJob,
   ProductListItem,
-} from '@/lib/database/types';
-import { formatCurrency, formatDateTime } from '@/lib/format';
-import { useAppStore } from '@/lib/store/app-store';
+} from "@/lib/database/types";
+import { formatCurrency, formatDateTime } from "@/lib/format";
+import { useAppStore } from "@/lib/store/app-store";
 
-type IconName = ComponentProps<typeof Ionicons>['name'];
+type IconName = ComponentProps<typeof Ionicons>["name"];
 type SettingsSection =
-  | 'general'
-  | 'payments'
-  | 'receipt'
-  | 'hardware'
-  | 'categories'
-  | 'products'
-  | 'users'
-  | 'backup'
-  | 'branches'
-  | 'logs'
-  | 'about';
+  | "general"
+  | "payments"
+  | "receipt"
+  | "hardware"
+  | "categories"
+  | "products"
+  | "users"
+  | "backup"
+  | "branches"
+  | "logs"
+  | "about";
 
 type GeneralForm = {
   storeName: string;
@@ -79,31 +89,32 @@ type PrinterForm = {
   printerName: string;
   printerAddress: string;
   paperWidth: string;
-  connectionType: 'bluetooth' | 'system';
+  connectionType: "bluetooth" | "system";
+  autoPrint: boolean;
 };
 
 type PaymentSettings = Record<PaymentMethod, boolean>;
 
 const sections: { key: SettingsSection; label: string; icon: IconName }[] = [
-  { key: 'general', label: 'General', icon: 'settings-outline' },
-  { key: 'payments', label: 'Payment Methods', icon: 'card-outline' },
-  { key: 'receipt', label: 'Receipt Settings', icon: 'receipt-outline' },
-  { key: 'hardware', label: 'Hardware Setup', icon: 'desktop-outline' },
-  { key: 'categories', label: 'Categories', icon: 'pricetags-outline' },
-  { key: 'products', label: 'Products', icon: 'cube-outline' },
-  { key: 'users', label: 'Users & Roles', icon: 'people-outline' },
-  { key: 'backup', label: 'Backup & Sync', icon: 'cloud-upload-outline' },
-  { key: 'branches', label: 'Branches', icon: 'business-outline' },
-  { key: 'logs', label: 'System Logs', icon: 'document-text-outline' },
-  { key: 'about', label: 'About System', icon: 'information-circle-outline' },
+  { key: "general", label: "General", icon: "settings-outline" },
+  { key: "payments", label: "Payment Methods", icon: "card-outline" },
+  { key: "receipt", label: "Receipt Settings", icon: "receipt-outline" },
+  { key: "hardware", label: "Hardware Setup", icon: "desktop-outline" },
+  { key: "categories", label: "Categories", icon: "pricetags-outline" },
+  { key: "products", label: "Products", icon: "cube-outline" },
+  { key: "users", label: "Users & Roles", icon: "people-outline" },
+  { key: "backup", label: "Backup & Sync", icon: "cloud-upload-outline" },
+  { key: "branches", label: "Branches", icon: "business-outline" },
+  { key: "logs", label: "System Logs", icon: "document-text-outline" },
+  { key: "about", label: "About System", icon: "information-circle-outline" },
 ];
 
 const paymentLabels: { key: PaymentMethod; label: string }[] = [
-  { key: 'cash', label: 'Cash' },
-  { key: 'card', label: 'Card' },
-  { key: 'gcash', label: 'GCash' },
-  { key: 'maya', label: 'Maya' },
-  { key: 'grabpay', label: 'GrabPay' },
+  { key: "cash", label: "Cash" },
+  { key: "card", label: "Card" },
+  { key: "gcash", label: "GCash" },
+  { key: "maya", label: "Maya" },
+  { key: "grabpay", label: "GrabPay" },
 ];
 
 const defaultPayments: PaymentSettings = {
@@ -116,51 +127,61 @@ const defaultPayments: PaymentSettings = {
 
 const logColumns: TableColumn<AuditLogItem>[] = [
   {
-    key: 'date',
-    title: 'Date',
+    key: "date",
+    title: "Date",
     width: 170,
-    render: (log) => <Text style={styles.tableText}>{formatDateTime(log.created_at)}</Text>,
+    render: (log) => (
+      <Text style={styles.tableText}>{formatDateTime(log.created_at)}</Text>
+    ),
   },
-  { key: 'action', title: 'Action', accessor: 'action', width: 220 },
-  { key: 'entity', title: 'Entity', accessor: 'entity_type', width: 150 },
-  { key: 'user', title: 'User', accessor: 'user_name', width: 170 },
+  { key: "action", title: "Action", accessor: "action", width: 220 },
+  { key: "entity", title: "Entity", accessor: "entity_type", width: 150 },
+  { key: "user", title: "User", accessor: "user_name", width: 170 },
   {
-    key: 'metadata',
-    title: 'Metadata',
+    key: "metadata",
+    title: "Metadata",
     width: 260,
     render: (log) => (
       <Text style={styles.tableText} numberOfLines={1}>
-        {log.metadata_json ?? '-'}
+        {log.metadata_json ?? "-"}
       </Text>
     ),
   },
 ];
 
 const printJobColumns: TableColumn<PrintJob>[] = [
-  { key: 'receipt', title: 'Receipt', accessor: 'receipt_number', width: 160 },
-  { key: 'printer', title: 'Printer', accessor: 'printer_name', width: 170 },
-  { key: 'address', title: 'Address', accessor: 'printer_address', width: 170 },
+  { key: "receipt", title: "Receipt", accessor: "receipt_number", width: 160 },
+  { key: "printer", title: "Printer", accessor: "printer_name", width: 170 },
+  { key: "address", title: "Address", accessor: "printer_address", width: 170 },
   {
-    key: 'status',
-    title: 'Status',
+    key: "status",
+    title: "Status",
     width: 110,
     render: (job) => (
       <Badge
-        status={job.status === 'sent' ? 'active' : job.status === 'failed' ? 'critical' : 'inactive'}
+        status={
+          job.status === "sent"
+            ? "active"
+            : job.status === "failed"
+              ? "critical"
+              : "inactive"
+        }
         label={job.status.toUpperCase()}
       />
     ),
   },
   {
-    key: 'date',
-    title: 'Created',
+    key: "date",
+    title: "Created",
     width: 170,
-    render: (job) => <Text style={styles.tableText}>{formatDateTime(job.created_at)}</Text>,
+    render: (job) => (
+      <Text style={styles.tableText}>{formatDateTime(job.created_at)}</Text>
+    ),
   },
   {
-    key: 'error',
-    title: 'Error',
-    accessor: 'error_message',
+    key: "error",
+    title: "Error",
+    accessor: "error_message",
     width: 220,
   },
 ];
@@ -181,59 +202,74 @@ export default function SettingsScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const currentUser = useAppStore((state) => state.currentUser);
-  const [selectedSection, setSelectedSection] = useState<SettingsSection>('general');
+  const [selectedSection, setSelectedSection] =
+    useState<SettingsSection>("general");
   const [settings, setSettings] = useState<Record<string, string>>({});
-  const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(defaultPayments);
+  const [paymentSettings, setPaymentSettings] =
+    useState<PaymentSettings>(defaultPayments);
   const [logs, setLogs] = useState<AuditLogItem[]>([]);
   const [printJobs, setPrintJobs] = useState<PrintJob[]>([]);
   const [categories, setCategories] = useState<CategoryManagementItem[]>([]);
-  const [categorySearch, setCategorySearch] = useState('');
-  const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
+  const [categorySearch, setCategorySearch] = useState("");
+  const [editingCategoryId, setEditingCategoryId] = useState<number | null>(
+    null,
+  );
   const [products, setProducts] = useState<ProductListItem[]>([]);
-  const [productSearch, setProductSearch] = useState('');
-  const [deletingProduct, setDeletingProduct] = useState<ProductListItem | null>(null);
+  const [productSearch, setProductSearch] = useState("");
+  const [deletingProduct, setDeletingProduct] =
+    useState<ProductListItem | null>(null);
   const [summary, setSummary] = useState<Record<string, number>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [exportingBackup, setExportingBackup] = useState(false);
   const [importingBackup, setImportingBackup] = useState(false);
-  const [healthCheck, setHealthCheck] = useState<DatabaseHealthCheck | null>(null);
+  const [healthCheck, setHealthCheck] = useState<DatabaseHealthCheck | null>(
+    null,
+  );
   const [checkingHealth, setCheckingHealth] = useState(false);
 
   const generalForm = useForm<GeneralForm>({
     defaultValues: {
-      storeName: '',
-      currency: 'PHP',
+      storeName: "",
+      currency: "PHP",
     },
   });
   const receiptForm = useForm<ReceiptForm>({
     defaultValues: {
-      receiptHeader: '',
-      receiptFooter: '',
+      receiptHeader: "",
+      receiptFooter: "",
     },
   });
   const branchForm = useForm<BranchForm>({
     defaultValues: {
-      branchName: '',
-      branchCode: '',
+      branchName: "",
+      branchCode: "",
     },
   });
   const categoryForm = useForm<CategoryForm>({
     defaultValues: {
-      name: '',
-      sortOrder: '0',
+      name: "",
+      sortOrder: "0",
     },
   });
   const printerForm = useForm<PrinterForm>({
     defaultValues: {
-      printerName: '',
-      printerAddress: '',
-      paperWidth: '58mm',
-      connectionType: 'bluetooth',
+      printerName: "",
+      printerAddress: "",
+      paperWidth: "58mm",
+      connectionType: "bluetooth",
+      autoPrint: true,
     },
   });
 
   const refresh = useCallback(async () => {
-    const [nextSettings, nextLogs, nextPrintJobs, nextCategories, nextProducts, dbSummary] = await Promise.all([
+    const [
+      nextSettings,
+      nextLogs,
+      nextPrintJobs,
+      nextCategories,
+      nextProducts,
+      dbSummary,
+    ] = await Promise.all([
       getSettingsMap(db),
       getAuditLogs(db, 50),
       getRecentPrintJobs(db, 15),
@@ -246,56 +282,64 @@ export default function SettingsScreen() {
     setPrintJobs(nextPrintJobs);
     setCategories(nextCategories);
     setProducts(nextProducts);
-    setSummary(dbSummary as Record<keyof typeof dbSummary, DatabaseCount['count']>);
+    setSummary(
+      dbSummary as Record<keyof typeof dbSummary, DatabaseCount["count"]>,
+    );
     setPaymentSettings(parsePaymentSettings(nextSettings.payment_methods));
     generalForm.reset({
-      storeName: nextSettings.store_name ?? 'StoreMate Convenience Store',
-      currency: nextSettings.currency ?? 'PHP',
+      storeName: nextSettings.store_name ?? "StoreMate Convenience Store",
+      currency: nextSettings.currency ?? "PHP",
     });
     receiptForm.reset({
-      receiptHeader: nextSettings.receipt_header ?? 'StoreMate Convenience Store',
-      receiptFooter: nextSettings.receipt_footer ?? 'Thank you for shopping with us.',
+      receiptHeader:
+        nextSettings.receipt_header ?? "StoreMate Convenience Store",
+      receiptFooter:
+        nextSettings.receipt_footer ?? "Thank you for shopping with us.",
     });
     branchForm.reset({
-      branchName: nextSettings.branch_name ?? 'Main Branch',
-      branchCode: nextSettings.branch_code ?? 'MAIN',
+      branchName: nextSettings.branch_name ?? "Main Branch",
+      branchCode: nextSettings.branch_code ?? "MAIN",
     });
     printerForm.reset({
-      printerName: nextSettings.printer_name ?? '',
-      printerAddress: nextSettings.printer_address ?? '',
-      paperWidth: nextSettings.printer_paper_width ?? '58mm',
-      connectionType: nextSettings.printer_connection_type === 'system' ? 'system' : 'bluetooth',
+      printerName: nextSettings.printer_name ?? "",
+      printerAddress: nextSettings.printer_address ?? "",
+      paperWidth: nextSettings.printer_paper_width ?? "58mm",
+      connectionType:
+        nextSettings.printer_connection_type === "system"
+          ? "system"
+          : "bluetooth",
+      autoPrint: nextSettings.receipt_auto_print !== "false",
     });
   }, [branchForm, db, generalForm, printerForm, receiptForm]);
 
   useFocusEffect(
     useCallback(() => {
       refresh();
-    }, [refresh])
+    }, [refresh]),
   );
 
   const hardwareRows = useMemo(
     () => [
       {
-        label: 'Receipt Printer',
+        label: "Receipt Printer",
         value:
           settings.printer_name || settings.hardware_printer
-            ? `${settings.printer_name || settings.hardware_printer} (${settings.printer_connection_type ?? 'bluetooth'})`
-            : 'Not configured',
-        icon: 'print-outline' as IconName,
+            ? `${settings.printer_name || settings.hardware_printer} (${settings.printer_connection_type ?? "bluetooth"})`
+            : "Not configured",
+        icon: "print-outline" as IconName,
       },
       {
-        label: 'Barcode Scanner',
-        value: settings.hardware_scanner ?? 'Keyboard wedge scanner',
-        icon: 'barcode-outline' as IconName,
+        label: "Barcode Scanner",
+        value: settings.hardware_scanner ?? "Keyboard wedge scanner",
+        icon: "barcode-outline" as IconName,
       },
       {
-        label: 'Cash Drawer',
-        value: 'Manual drawer tracking',
-        icon: 'file-tray-outline' as IconName,
+        label: "Cash Drawer",
+        value: "Manual drawer tracking",
+        icon: "file-tray-outline" as IconName,
       },
     ],
-    [settings]
+    [settings],
   );
 
   const filteredCategories = useMemo(() => {
@@ -306,7 +350,7 @@ export default function SettingsScreen() {
     }
 
     return categories.filter((category) =>
-      category.name.toLowerCase().includes(normalizedSearch)
+      category.name.toLowerCase().includes(normalizedSearch),
     );
   }, [categories, categorySearch]);
 
@@ -322,11 +366,14 @@ export default function SettingsScreen() {
         product.name.toLowerCase().includes(normalizedSearch) ||
         product.sku.toLowerCase().includes(normalizedSearch) ||
         product.category_name.toLowerCase().includes(normalizedSearch) ||
-        product.barcode?.toLowerCase().includes(normalizedSearch)
+        product.barcode?.toLowerCase().includes(normalizedSearch),
     );
   }, [productSearch, products]);
 
-  async function persist(values: Record<string, string>, successMessage: string) {
+  async function persist(
+    values: Record<string, string>,
+    successMessage: string,
+  ) {
     if (!currentUser) {
       return;
     }
@@ -342,7 +389,7 @@ export default function SettingsScreen() {
         store_name: values.storeName,
         currency: values.currency,
       },
-      'General settings saved.'
+      "General settings saved.",
     );
   }
 
@@ -352,7 +399,7 @@ export default function SettingsScreen() {
         receipt_header: values.receiptHeader,
         receipt_footer: values.receiptFooter,
       },
-      'Receipt settings saved.'
+      "Receipt settings saved.",
     );
   }
 
@@ -362,7 +409,7 @@ export default function SettingsScreen() {
         branch_name: values.branchName,
         branch_code: values.branchCode,
       },
-      'Branch settings saved.'
+      "Branch settings saved.",
     );
   }
 
@@ -378,8 +425,8 @@ export default function SettingsScreen() {
   function cancelCategoryEdit() {
     setEditingCategoryId(null);
     categoryForm.reset({
-      name: '',
-      sortOrder: '0',
+      name: "",
+      sortOrder: "0",
     });
     setMessage(null);
   }
@@ -397,20 +444,22 @@ export default function SettingsScreen() {
     try {
       if (editingCategoryId) {
         await updateCategory(db, editingCategoryId, input, currentUser.id);
-        setMessage('Category updated.');
+        setMessage("Category updated.");
       } else {
         await createCategory(db, input, currentUser.id);
-        setMessage('Category added.');
+        setMessage("Category added.");
       }
 
       setEditingCategoryId(null);
       categoryForm.reset({
-        name: '',
-        sortOrder: '0',
+        name: "",
+        sortOrder: "0",
       });
       await refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to save category.');
+      setMessage(
+        error instanceof Error ? error.message : "Unable to save category.",
+      );
     }
   }
 
@@ -424,14 +473,16 @@ export default function SettingsScreen() {
       if (editingCategoryId === category.id) {
         setEditingCategoryId(null);
         categoryForm.reset({
-          name: '',
-          sortOrder: '0',
+          name: "",
+          sortOrder: "0",
         });
       }
-      setMessage('Category deleted.');
+      setMessage("Category deleted.");
       await refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to delete category.');
+      setMessage(
+        error instanceof Error ? error.message : "Unable to delete category.",
+      );
     }
   }
 
@@ -443,10 +494,12 @@ export default function SettingsScreen() {
     try {
       await deleteProduct(db, deletingProduct.id, currentUser.id);
       setDeletingProduct(null);
-      setMessage('Product deleted.');
+      setMessage("Product deleted.");
       await refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to delete product.');
+      setMessage(
+        error instanceof Error ? error.message : "Unable to delete product.",
+      );
     }
   }
 
@@ -455,7 +508,7 @@ export default function SettingsScreen() {
       {
         payment_methods: JSON.stringify(paymentSettings),
       },
-      'Payment method settings saved.'
+      "Payment method settings saved.",
     );
   }
 
@@ -466,9 +519,10 @@ export default function SettingsScreen() {
         printer_name: values.printerName,
         printer_address: values.printerAddress,
         printer_paper_width: values.paperWidth,
-        hardware_printer: values.printerName || 'Not configured',
+        hardware_printer: values.printerName || "Not configured",
+        receipt_auto_print: values.autoPrint ? "true" : "false",
       },
-      'Printer settings saved.'
+      "Printer settings saved.",
     );
   }
 
@@ -479,9 +533,17 @@ export default function SettingsScreen() {
     try {
       const result = await runDatabaseIntegrityCheck(db);
       setHealthCheck(result);
-      setMessage(result.integrityOk ? 'Database integrity check passed.' : 'Database check found issues.');
+      setMessage(
+        result.integrityOk
+          ? "Database integrity check passed."
+          : "Database check found issues.",
+      );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Database integrity check failed.');
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Database integrity check failed.",
+      );
     } finally {
       setCheckingHealth(false);
     }
@@ -499,11 +561,13 @@ export default function SettingsScreen() {
       setMessage(
         result.shared
           ? `Database backup exported: ${result.name}`
-          : `Database backup saved locally: ${result.uri}`
+          : `Database backup saved locally: ${result.uri}`,
       );
       await refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Database export failed.');
+      setMessage(
+        error instanceof Error ? error.message : "Database export failed.",
+      );
     } finally {
       setExportingBackup(false);
     }
@@ -518,34 +582,48 @@ export default function SettingsScreen() {
         userId: currentUser?.id ?? null,
       });
       setMessage(
-        `Database backup imported from ${result.sourceName}. Safety copy saved at ${result.safetyBackupUri}.`
+        `Database backup imported from ${result.sourceName}. Safety copy saved at ${result.safetyBackupUri}.`,
       );
       await refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Database import failed.');
+      setMessage(
+        error instanceof Error ? error.message : "Database import failed.",
+      );
     } finally {
       setImportingBackup(false);
     }
   }
 
   const categoryColumns: TableColumn<CategoryManagementItem>[] = [
-    { key: 'name', title: 'Category', accessor: 'name', width: 220 },
-    { key: 'sort', title: 'Sort', accessor: 'sort_order', width: 80, align: 'right' },
-    { key: 'products', title: 'Products', accessor: 'product_count', width: 100, align: 'right' },
+    { key: "name", title: "Category", accessor: "name", width: 220 },
     {
-      key: 'status',
-      title: 'Status',
+      key: "sort",
+      title: "Sort",
+      accessor: "sort_order",
+      width: 80,
+      align: "right",
+    },
+    {
+      key: "products",
+      title: "Products",
+      accessor: "product_count",
+      width: 100,
+      align: "right",
+    },
+    {
+      key: "status",
+      title: "Status",
       width: 110,
       render: (category) => (
         <Badge
-          status={category.is_active ? 'active' : 'inactive'}
-          label={category.is_active ? 'Active' : 'Inactive'}
+          status={category.is_active ? "active" : "inactive"}
+          label={category.is_active ? "Active" : "Inactive"}
         />
       ),
     },
     {
-      key: 'actions',
-      title: '',
+      key: "actions",
+      title: "",
       width: 190,
       render: (category) => (
         <View style={styles.rowActions}>
@@ -568,24 +646,35 @@ export default function SettingsScreen() {
   ];
 
   const productColumns: TableColumn<ProductListItem>[] = [
-    { key: 'name', title: 'Product', accessor: 'name', width: 220 },
-    { key: 'sku', title: 'SKU', accessor: 'sku', width: 110 },
-    { key: 'category', title: 'Category', accessor: 'category_name', width: 140 },
+    { key: "name", title: "Product", accessor: "name", width: 220 },
+    { key: "sku", title: "SKU", accessor: "sku", width: 110 },
     {
-      key: 'price',
-      title: 'Price',
+      key: "category",
+      title: "Category",
+      accessor: "category_name",
+      width: 140,
+    },
+    {
+      key: "price",
+      title: "Price",
       width: 110,
-      align: 'right',
+      align: "right",
       render: (product) => (
         <Text style={styles.tableText}>
           {formatCurrency(product.promo_price ?? product.regular_price)}
         </Text>
       ),
     },
-    { key: 'stock', title: 'Stock', accessor: 'current_stock', width: 90, align: 'right' },
     {
-      key: 'actions',
-      title: '',
+      key: "stock",
+      title: "Stock",
+      accessor: "current_stock",
+      width: 90,
+      align: "right",
+    },
+    {
+      key: "actions",
+      title: "",
       width: 180,
       render: (product) => (
         <View style={styles.rowActions}>
@@ -595,7 +684,7 @@ export default function SettingsScreen() {
             variant="outline"
             onPress={() =>
               router.push({
-                pathname: '/product-form',
+                pathname: "/product-form",
                 params: { productId: String(product.id) },
               } as never)
             }
@@ -621,10 +710,11 @@ export default function SettingsScreen() {
           title="System Logs"
           variant="secondary"
           icon="document-text-outline"
-          onPress={() => setSelectedSection('logs')}
+          onPress={() => setSelectedSection("logs")}
         />
-      }>
-      <RequireRole roles={['admin']}>
+      }
+    >
+      <RequireRole roles={["admin"]}>
         <View style={styles.layout}>
           <View style={styles.grid}>
             {sections.map((item) => (
@@ -637,17 +727,21 @@ export default function SettingsScreen() {
                 style={[
                   styles.settingCard,
                   selectedSection === item.key && styles.settingCardActive,
-                ]}>
+                ]}
+              >
                 <Ionicons
                   name={item.icon}
                   size={26}
-                  color={selectedSection === item.key ? palette.primary : palette.ink}
+                  color={
+                    selectedSection === item.key ? palette.primary : palette.ink
+                  }
                 />
                 <Text
                   style={[
                     styles.settingLabel,
                     selectedSection === item.key && styles.settingLabelActive,
-                  ]}>
+                  ]}
+                >
                   {item.label}
                 </Text>
               </Pressable>
@@ -656,13 +750,13 @@ export default function SettingsScreen() {
 
           <View style={styles.panel}>
             {message ? <Text style={styles.message}>{message}</Text> : null}
-            {selectedSection === 'general' ? (
+            {selectedSection === "general" ? (
               <Card style={styles.formCard}>
                 <Text style={styles.sectionTitle}>General Settings</Text>
                 <Controller
                   control={generalForm.control}
                   name="storeName"
-                  rules={{ required: 'Store name is required.' }}
+                  rules={{ required: "Store name is required." }}
                   render={({ field: { onBlur, onChange, value } }) => (
                     <Input
                       label="Store Name"
@@ -692,12 +786,12 @@ export default function SettingsScreen() {
               </Card>
             ) : null}
 
-            {selectedSection === 'payments' ? (
+            {selectedSection === "payments" ? (
               <Card style={styles.formCard}>
                 <Text style={styles.sectionTitle}>Payment Methods</Text>
                 <Text style={styles.helperText}>
-                  These settings are local configuration flags for the available checkout payment
-                  methods.
+                  These settings are local configuration flags for the available
+                  checkout payment methods.
                 </Text>
                 <View style={styles.toggleList}>
                   {paymentLabels.map((payment) => (
@@ -709,20 +803,29 @@ export default function SettingsScreen() {
                           [payment.key]: !current[payment.key],
                         }))
                       }
-                      style={styles.toggleRow}>
+                      style={styles.toggleRow}
+                    >
                       <Text style={styles.toggleLabel}>{payment.label}</Text>
                       <Badge
-                        status={paymentSettings[payment.key] ? 'active' : 'inactive'}
-                        label={paymentSettings[payment.key] ? 'Enabled' : 'Disabled'}
+                        status={
+                          paymentSettings[payment.key] ? "active" : "inactive"
+                        }
+                        label={
+                          paymentSettings[payment.key] ? "Enabled" : "Disabled"
+                        }
                       />
                     </Pressable>
                   ))}
                 </View>
-                <Button title="Save Payment Methods" icon="save-outline" onPress={savePayments} />
+                <Button
+                  title="Save Payment Methods"
+                  icon="save-outline"
+                  onPress={savePayments}
+                />
               </Card>
             ) : null}
 
-            {selectedSection === 'receipt' ? (
+            {selectedSection === "receipt" ? (
               <Card style={styles.formCard}>
                 <Text style={styles.sectionTitle}>Receipt Settings</Text>
                 <Controller
@@ -759,25 +862,30 @@ export default function SettingsScreen() {
               </Card>
             ) : null}
 
-            {selectedSection === 'hardware' ? (
+            {selectedSection === "hardware" ? (
               <Card style={styles.formCard}>
                 <Text style={styles.sectionTitle}>Hardware Setup</Text>
                 <Text style={styles.helperText}>
-                  Configure the receipt printer profile used for receipt print jobs. Direct
-                  Bluetooth ESC/POS discovery requires a development build/native adapter; this
-                  screen stores the printer profile and logs print attempts locally.
+                  Configure the receipt printer profile used for receipt print
+                  jobs. Direct Bluetooth ESC/POS discovery requires a
+                  development build/native adapter; this screen stores the
+                  printer profile and logs print attempts locally.
                 </Text>
                 {hardwareRows.map((row) => (
                   <View key={row.label} style={styles.hardwareRow}>
-                    <Ionicons name={row.icon} size={22} color={palette.inkMuted} />
+                    <Ionicons
+                      name={row.icon}
+                      size={22}
+                      color={palette.inkMuted}
+                    />
                     <View style={styles.rowCopy}>
                       <Text style={styles.rowTitle}>{row.label}</Text>
                       <Text style={styles.rowMeta}>{row.value}</Text>
                     </View>
-                    {row.label === 'Receipt Printer' ? (
+                    {row.label === "Receipt Printer" ? (
                       <Badge
-                        status={settings.printer_name ? 'active' : 'inactive'}
-                        label={settings.printer_name ? 'Configured' : 'Not Set'}
+                        status={settings.printer_name ? "active" : "inactive"}
+                        label={settings.printer_name ? "Configured" : "Not Set"}
                       />
                     ) : (
                       <Badge status="inactive" label="Placeholder" />
@@ -792,27 +900,61 @@ export default function SettingsScreen() {
                       <Text style={styles.fieldLabel}>Connection Mode</Text>
                       <View style={styles.connectionRow}>
                         {[
-                          { key: 'bluetooth', label: 'Bluetooth' },
-                          { key: 'system', label: 'System Print' },
+                          { key: "bluetooth", label: "Bluetooth" },
+                          { key: "system", label: "System Print" },
                         ].map((option) => (
                           <Pressable
                             key={option.key}
                             onPress={() => onChange(option.key)}
                             style={[
                               styles.connectionOption,
-                              value === option.key && styles.connectionOptionActive,
-                            ]}>
+                              value === option.key &&
+                                styles.connectionOptionActive,
+                            ]}
+                          >
                             <Text
                               style={[
                                 styles.connectionText,
-                                value === option.key && styles.connectionTextActive,
-                              ]}>
+                                value === option.key &&
+                                  styles.connectionTextActive,
+                              ]}
+                            >
                               {option.label}
                             </Text>
                           </Pressable>
                         ))}
                       </View>
                     </View>
+                  )}
+                />
+                <Controller
+                  control={printerForm.control}
+                  name="autoPrint"
+                  render={({ field: { onChange, value } }) => (
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => onChange(!value)}
+                      style={styles.hardwareRow}
+                    >
+                      <Ionicons
+                        name="receipt-outline"
+                        size={22}
+                        color={palette.inkMuted}
+                      />
+                      <View style={styles.rowCopy}>
+                        <Text style={styles.rowTitle}>
+                          Auto Print After Payment
+                        </Text>
+                        <Text style={styles.rowMeta}>
+                          Uses the configured receipt printer profile after
+                          every completed sale.
+                        </Text>
+                      </View>
+                      <Badge
+                        status={value ? "active" : "inactive"}
+                        label={value ? "Enabled" : "Disabled"}
+                      />
+                    </Pressable>
                   )}
                 />
                 <Controller
@@ -872,12 +1014,13 @@ export default function SettingsScreen() {
               </Card>
             ) : null}
 
-            {selectedSection === 'categories' ? (
+            {selectedSection === "categories" ? (
               <Card style={styles.formCard}>
                 <Text style={styles.sectionTitle}>Category Management</Text>
                 <Text style={styles.helperText}>
-                  Manage active product categories used by POS filters, inventory, stock-in, and
-                  promotions. Categories with products must be reassigned before deletion.
+                  Manage active product categories used by POS filters,
+                  inventory, stock-in, and promotions. Categories with products
+                  must be reassigned before deletion.
                 </Text>
                 <Input
                   label="Search Categories"
@@ -890,7 +1033,7 @@ export default function SettingsScreen() {
                   <Controller
                     control={categoryForm.control}
                     name="name"
-                    rules={{ required: 'Category name is required.' }}
+                    rules={{ required: "Category name is required." }}
                     render={({ field: { onBlur, onChange, value } }) => (
                       <Input
                         label="Category Name"
@@ -917,7 +1060,9 @@ export default function SettingsScreen() {
                   />
                 </View>
                 {categoryForm.formState.errors.name ? (
-                  <Text style={styles.errorText}>{categoryForm.formState.errors.name.message}</Text>
+                  <Text style={styles.errorText}>
+                    {categoryForm.formState.errors.name.message}
+                  </Text>
                 ) : null}
                 <View style={styles.formActions}>
                   {editingCategoryId ? (
@@ -930,8 +1075,10 @@ export default function SettingsScreen() {
                     />
                   ) : null}
                   <Button
-                    title={editingCategoryId ? 'Update Category' : 'Add Category'}
-                    icon={editingCategoryId ? 'save-outline' : 'add'}
+                    title={
+                      editingCategoryId ? "Update Category" : "Add Category"
+                    }
+                    icon={editingCategoryId ? "save-outline" : "add"}
                     onPress={categoryForm.handleSubmit(saveCategory)}
                     style={styles.formActionButton}
                   />
@@ -945,12 +1092,12 @@ export default function SettingsScreen() {
               </Card>
             ) : null}
 
-            {selectedSection === 'products' ? (
+            {selectedSection === "products" ? (
               <Card style={styles.formCard}>
                 <Text style={styles.sectionTitle}>Product Management</Text>
                 <Text style={styles.helperText}>
-                  Delete is available only for active products with zero current stock and no
-                  remaining batch quantity.
+                  Delete is available only for active products with zero current
+                  stock and no remaining batch quantity.
                 </Text>
                 <Input
                   label="Search Products"
@@ -968,32 +1115,40 @@ export default function SettingsScreen() {
               </Card>
             ) : null}
 
-            {selectedSection === 'users' ? (
+            {selectedSection === "users" ? (
               <Card style={styles.formCard}>
                 <Text style={styles.sectionTitle}>Users & Roles</Text>
                 <Text style={styles.helperText}>
-                  User and shift administration lives in the dedicated users screen.
+                  User and shift administration lives in the dedicated users
+                  screen.
                 </Text>
                 <Button
                   title="Open Users"
                   icon="people-outline"
-                  onPress={() => router.push('/users' as never)}
+                  onPress={() => router.push("/users" as never)}
                 />
               </Card>
             ) : null}
 
-            {selectedSection === 'backup' ? (
+            {selectedSection === "backup" ? (
               <Card style={styles.formCard}>
                 <Text style={styles.sectionTitle}>Backup & Sync</Text>
                 <Text style={styles.helperText}>
-                  Sync remains disabled for this version. Export creates a full local SQLite backup
-                  file. Import restores a selected SQLite backup and saves a safety copy first.
+                  Sync remains disabled for this version. Export creates a full
+                  local SQLite backup file. Import restores a selected SQLite
+                  backup and saves a safety copy first.
                 </Text>
                 <View style={styles.hardwareRow}>
-                  <Ionicons name="cloud-offline-outline" size={22} color={palette.inkMuted} />
+                  <Ionicons
+                    name="cloud-offline-outline"
+                    size={22}
+                    color={palette.inkMuted}
+                  />
                   <View style={styles.rowCopy}>
                     <Text style={styles.rowTitle}>Current Mode</Text>
-                    <Text style={styles.rowMeta}>{settings.backup_sync_status ?? 'Offline-only mode'}</Text>
+                    <Text style={styles.rowMeta}>
+                      {settings.backup_sync_status ?? "Offline-only mode"}
+                    </Text>
                   </View>
                   <Badge status="inactive" label="No Sync" />
                 </View>
@@ -1015,13 +1170,14 @@ export default function SettingsScreen() {
                   />
                 </View>
                 <Text style={styles.helperText}>
-                  App updates keep this database in place as long as the app package ID stays the
-                  same and the app is updated over the existing install.
+                  App updates keep this database in place as long as the app
+                  package ID stays the same and the app is updated over the
+                  existing install.
                 </Text>
               </Card>
             ) : null}
 
-            {selectedSection === 'branches' ? (
+            {selectedSection === "branches" ? (
               <Card style={styles.formCard}>
                 <Text style={styles.sectionTitle}>Branch Settings</Text>
                 <Controller
@@ -1057,7 +1213,7 @@ export default function SettingsScreen() {
               </Card>
             ) : null}
 
-            {selectedSection === 'logs' ? (
+            {selectedSection === "logs" ? (
               <Card padded={false}>
                 <View style={styles.tableHeader}>
                   <Text style={styles.sectionTitle}>System Logs</Text>
@@ -1072,34 +1228,54 @@ export default function SettingsScreen() {
               </Card>
             ) : null}
 
-            {selectedSection === 'about' ? (
+            {selectedSection === "about" ? (
               <Card style={styles.formCard}>
                 <Text style={styles.sectionTitle}>About System</Text>
                 <View style={styles.aboutGrid}>
                   <AboutMetric label="Version" value="1.0.0" />
-                  <AboutMetric label="Products" value={String(summary.products ?? 0)} />
-                  <AboutMetric label="Users" value={String(summary.users ?? 0)} />
-                  <AboutMetric label="Suppliers" value={String(summary.suppliers ?? 0)} />
-                  <AboutMetric label="Customers" value={String(summary.customers ?? 0)} />
-                  <AboutMetric label="Categories" value={String(summary.categories ?? 0)} />
+                  <AboutMetric
+                    label="Products"
+                    value={String(summary.products ?? 0)}
+                  />
+                  <AboutMetric
+                    label="Users"
+                    value={String(summary.users ?? 0)}
+                  />
+                  <AboutMetric
+                    label="Suppliers"
+                    value={String(summary.suppliers ?? 0)}
+                  />
+                  <AboutMetric
+                    label="Customers"
+                    value={String(summary.customers ?? 0)}
+                  />
+                  <AboutMetric
+                    label="Categories"
+                    value={String(summary.categories ?? 0)}
+                  />
                 </View>
                 <Text style={styles.helperText}>
-                  StoreMate POS runs fully offline on the tablet with SQLite persistence.
+                  StoreMate POS runs fully offline on the tablet with SQLite
+                  persistence.
                 </Text>
                 <View style={styles.hardwareRow}>
-                  <Ionicons name="shield-checkmark-outline" size={22} color={palette.inkMuted} />
+                  <Ionicons
+                    name="shield-checkmark-outline"
+                    size={22}
+                    color={palette.inkMuted}
+                  />
                   <View style={styles.rowCopy}>
                     <Text style={styles.rowTitle}>SQLite Integrity</Text>
                     <Text style={styles.rowMeta}>
                       {healthCheck
-                        ? `${healthCheck.integrityMessages.join(', ')} | FK issues: ${healthCheck.foreignKeyViolations}`
-                        : 'Not checked this session'}
+                        ? `${healthCheck.integrityMessages.join(", ")} | FK issues: ${healthCheck.foreignKeyViolations}`
+                        : "Not checked this session"}
                     </Text>
                   </View>
                   {healthCheck ? (
                     <Badge
-                      status={healthCheck.integrityOk ? 'active' : 'critical'}
-                      label={healthCheck.integrityOk ? 'OK' : 'Issue'}
+                      status={healthCheck.integrityOk ? "active" : "critical"}
+                      label={healthCheck.integrityOk ? "OK" : "Issue"}
                     />
                   ) : null}
                 </View>
@@ -1134,10 +1310,12 @@ export default function SettingsScreen() {
                 style={styles.modalButton}
               />
             </View>
-          }>
+          }
+        >
           <Text style={styles.modalText}>
-            Delete {deletingProduct?.name ?? 'this product'} from active product lists? This is
-            allowed only when stock and batch quantities are zero.
+            Delete {deletingProduct?.name ?? "this product"} from active product
+            lists? This is allowed only when stock and batch quantities are
+            zero.
           </Text>
         </Modal>
       </RequireRole>
@@ -1156,25 +1334,25 @@ function AboutMetric({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   layout: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: "flex-start",
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.lg,
   },
   grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.md,
     maxWidth: 520,
   },
   settingCard: {
-    alignItems: 'center',
+    alignItems: "center",
     backgroundColor: palette.surface,
     borderColor: palette.border,
     borderRadius: radii.md,
     borderWidth: 1,
     gap: spacing.sm,
-    justifyContent: 'center',
+    justifyContent: "center",
     minHeight: 118,
     padding: spacing.sm,
     width: 150,
@@ -1186,8 +1364,8 @@ const styles = StyleSheet.create({
   settingLabel: {
     color: palette.ink,
     fontSize: 13,
-    fontWeight: '800',
-    textAlign: 'center',
+    fontWeight: "800",
+    textAlign: "center",
   },
   settingLabelActive: {
     color: palette.primaryDark,
@@ -1204,22 +1382,22 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: palette.ink,
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   helperText: {
     color: palette.inkMuted,
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: "700",
     lineHeight: 20,
   },
   multilineInput: {
     minHeight: 82,
-    textAlignVertical: 'top',
+    textAlignVertical: "top",
   },
   inlineForm: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: "flex-start",
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
   },
   inlineFormMain: {
@@ -1230,30 +1408,30 @@ const styles = StyleSheet.create({
     flexBasis: 140,
   },
   formActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
-    justifyContent: 'flex-end',
+    justifyContent: "flex-end",
   },
   formActionButton: {
     minWidth: 150,
   },
   rowActions: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: spacing.xs,
   },
   backupActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
   },
   backupButton: {
     minWidth: 180,
   },
   modalFooter: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: spacing.sm,
-    justifyContent: 'flex-end',
+    justifyContent: "flex-end",
   },
   modalButton: {
     minWidth: 130,
@@ -1261,17 +1439,17 @@ const styles = StyleSheet.create({
   modalText: {
     color: palette.ink,
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: "700",
     lineHeight: 21,
   },
   toggleList: {
     gap: spacing.xs,
   },
   toggleRow: {
-    alignItems: 'center',
+    alignItems: "center",
     borderBottomColor: palette.border,
     borderBottomWidth: 1,
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: spacing.sm,
     minHeight: 48,
   },
@@ -1279,13 +1457,13 @@ const styles = StyleSheet.create({
     color: palette.ink,
     flex: 1,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   hardwareRow: {
-    alignItems: 'center',
+    alignItems: "center",
     borderBottomColor: palette.border,
     borderBottomWidth: 1,
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: spacing.sm,
     minHeight: 58,
   },
@@ -1296,46 +1474,46 @@ const styles = StyleSheet.create({
   rowTitle: {
     color: palette.ink,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   rowMeta: {
     color: palette.inkMuted,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   tableHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
     padding: spacing.md,
   },
   tableHeaderCompact: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
     marginTop: spacing.sm,
   },
   fieldLabel: {
     color: palette.inkMuted,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
     marginBottom: spacing.xs,
   },
   connectionGroup: {
     gap: spacing.xs,
   },
   connectionRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.xs,
   },
   connectionOption: {
-    alignItems: 'center',
+    alignItems: "center",
     borderColor: palette.border,
     borderRadius: radii.sm,
     borderWidth: 1,
     minHeight: 40,
-    justifyContent: 'center',
+    justifyContent: "center",
     paddingHorizontal: spacing.md,
   },
   connectionOptionActive: {
@@ -1345,7 +1523,7 @@ const styles = StyleSheet.create({
   connectionText: {
     color: palette.ink,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   connectionTextActive: {
     color: palette.surface,
@@ -1353,11 +1531,11 @@ const styles = StyleSheet.create({
   tableText: {
     color: palette.ink,
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   aboutGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
   },
   aboutMetric: {
@@ -1371,21 +1549,21 @@ const styles = StyleSheet.create({
   aboutLabel: {
     color: palette.inkMuted,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   aboutValue: {
     color: palette.primary,
     fontSize: 20,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   message: {
     color: palette.primaryDark,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   errorText: {
     color: palette.danger,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: "800",
   },
 });

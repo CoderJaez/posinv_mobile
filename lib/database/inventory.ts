@@ -162,6 +162,7 @@ export async function getCategoryManagementItems(db: SQLiteDatabase, search = ''
        COUNT(products.id) as product_count
      FROM categories
      LEFT JOIN products ON products.category_id = categories.id
+       AND products.is_active = 1
      WHERE categories.is_active = 1
        AND (? = '%%' OR categories.name LIKE ?)
      GROUP BY categories.id
@@ -735,6 +736,7 @@ export async function deleteCategory(db: SQLiteDatabase, categoryId: number, use
        COUNT(products.id) as product_count
      FROM categories
      LEFT JOIN products ON products.category_id = categories.id
+       AND products.is_active = 1
      WHERE categories.id = ?
        AND categories.is_active = 1
      GROUP BY categories.id`,

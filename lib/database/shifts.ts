@@ -113,7 +113,7 @@ export async function getShiftSummary(db: SQLiteDatabase, shiftId: number) {
        users.full_name as cashier_name,
        users.role as cashier_role,
        COALESCE((
-         SELECT SUM(payments.amount)
+         SELECT SUM(sales.total)
          FROM payments
          INNER JOIN sales ON sales.id = payments.sale_id
          WHERE sales.shift_id = shifts.id
