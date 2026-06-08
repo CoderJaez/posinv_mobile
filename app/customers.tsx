@@ -22,7 +22,7 @@ import {
   type CustomerInput,
 } from '@/lib/database/customers';
 import type { Customer, CustomerStatus, CustomerSummary } from '@/lib/database/types';
-import { formatDateTime } from '@/lib/format';
+import { formatLocalDateTime } from '@/lib/format';
 import { useAppStore } from '@/lib/store/app-store';
 
 type CustomerForm = {
@@ -213,7 +213,7 @@ export default function CustomersScreen() {
       key: 'lastVisit',
       title: 'Last Visit',
       width: 160,
-      render: (customer) => <Text style={styles.tableText}>{formatDateTime(customer.last_visit_at)}</Text>,
+      render: (customer) => <Text style={styles.tableText}>{formatLocalDateTime(customer.last_visit_at)}</Text>,
     },
     {
       key: 'status',

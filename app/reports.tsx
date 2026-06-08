@@ -8,6 +8,7 @@ import { RequireRole } from '@/components/auth/RequireRole';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
+import { DateInput } from '@/components/ui/date-input';
 import { ScreenState } from '@/components/ui/ScreenState';
 import { palette, radii, spacing } from '@/constants/theme';
 import {
@@ -16,6 +17,7 @@ import {
   getReportSummary,
   getSalesReportRows,
   getTopSellingProducts,
+  type ReportDateFilter,
 } from '@/lib/database/reports';
 import type {
   HourlySalesPoint,
@@ -49,6 +51,8 @@ export default function ReportsScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const [range, setRange] = useState<ReportRange>('daily');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [rangeLabel, setRangeLabel] = useState('');
   const [summary, setSummary] = useState<ReportSummary>(emptySummary);
   const [hourlySales, setHourlySales] = useState<HourlySalesPoint[]>([]);
@@ -58,6 +62,13 @@ export default function ReportsScreen() {
   const [exporting, setExporting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const dateFilter = useMemo<ReportDateFilter>(
+    () => ({
+      startDate,
+      endDate,
+    }),
+    [endDate, startDate]
+  );
 
   const loadReports = useCallback(async () => {
     setLoading(true);
@@ -65,10 +76,10 @@ export default function ReportsScreen() {
 
     try {
       const [summaryResult, hourly, topSelling, payments] = await Promise.all([
-        getReportSummary(db, range),
-        getHourlySales(db, range),
-        getTopSellingProducts(db, range, 5),
-        getPaymentBreakdown(db, range),
+        getReportSummary(db, range, dateFilter),
+        getHourlySales(db, range, dateFilter),
+        getTopSellingProducts(db, range, 5, dateFilter),
+        getPaymentBreakdown(db, range, dateFilter),
       ]);
 
       setRangeLabel(summaryResult.bounds.label);
@@ -81,7 +92,7 @@ export default function ReportsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [db, range]);
+  }, [dateFilter, db, range]);
 
   useFocusEffect(
     useCallback(() => {
@@ -117,11 +128,11 @@ export default function ReportsScreen() {
 
     try {
       const [summaryResult, hourly, topSelling, payments, salesRows] = await Promise.all([
-        getReportSummary(db, range),
-        getHourlySales(db, range),
-        getTopSellingProducts(db, range, 10),
-        getPaymentBreakdown(db, range),
-        getSalesReportRows(db, range, 500),
+        getReportSummary(db, range, dateFilter),
+        getHourlySales(db, range, dateFilter),
+        getTopSellingProducts(db, range, 10, dateFilter),
+        getPaymentBreakdown(db, range, dateFilter),
+        getSalesReportRows(db, range, 500, dateFilter),
       ]);
       const reportInsights = buildReportInsights(
         {
@@ -166,7 +177,7 @@ export default function ReportsScreen() {
             onPress={() =>
               router.push({
                 pathname: '/sales-report-details',
-                params: { range },
+                params: { range, startDate, endDate },
               } as never)
             }
           />
@@ -197,6 +208,38 @@ export default function ReportsScreen() {
             </Pressable>
           ))}
         </View>
+        <Card style={styles.filterCard}>
+          <Text style={styles.sectionTitle}>Date Range Filter</Text>
+          <View style={styles.filterRow}>
+            <DateInput
+              label="Start Date"
+              value={startDate}
+              onChangeText={setStartDate}
+              placeholder="YYYY-MM-DD"
+              containerStyle={styles.dateInput}
+            />
+            <DateInput
+              label="End Date"
+              value={endDate}
+              onChangeText={setEndDate}
+              placeholder="YYYY-MM-DD"
+              containerStyle={styles.dateInput}
+            />
+            <Button
+              title="Clear Dates"
+              icon="close-outline"
+              variant="secondary"
+              onPress={() => {
+                setStartDate('');
+                setEndDate('');
+              }}
+              style={styles.clearButton}
+            />
+          </View>
+          <Text style={styles.mutedText}>
+            Leave dates blank to use the selected daily, weekly, or monthly range.
+          </Text>
+        </Card>
         {exportMessage ? <Text style={styles.exportMessage}>{exportMessage}</Text> : null}
 
         {loading ? (
@@ -365,6 +408,23 @@ const styles = StyleSheet.create({
   },
   rangeTextActive: {
     color: palette.surface,
+  },
+  filterCard: {
+    gap: spacing.sm,
+  },
+  filterRow: {
+    alignItems: 'flex-end',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  dateInput: {
+    flexBasis: 180,
+    flexGrow: 1,
+    maxWidth: 240,
+  },
+  clearButton: {
+    minWidth: 140,
   },
   kpiGrid: {
     flexDirection: 'row',

@@ -30,6 +30,72 @@ type HoldTransactionInput = {
   items: CartItemSnapshot[];
 };
 
+type ShiftSalesInput = {
+  shiftId: number;
+  startDate?: string | null;
+  endDate?: string | null;
+  limit?: number;
+  offset?: number;
+};
+
+function parseDateInput(value?: string | null) {
+  const match = value?.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const [, year, month, day] = match;
+  const parsed = new Date(Number(year), Number(month) - 1, Number(day));
+
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function addDays(date: Date, days: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+}
+
+function toSqlDateTime(date: Date) {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const hours = String(date.getUTCHours()).padStart(2, '0');
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
+function buildShiftSalesWhere(input: ShiftSalesInput) {
+  const where = ['sales.shift_id = ?'];
+  const params: (number | string)[] = [input.shiftId];
+  const parsedStart = parseDateInput(input.startDate);
+  const parsedEnd = parseDateInput(input.endDate);
+  const start = parsedStart && parsedEnd && parsedStart > parsedEnd ? parsedEnd : parsedStart;
+  const end = parsedStart && parsedEnd && parsedStart > parsedEnd ? parsedStart : parsedEnd;
+
+  if (start) {
+    where.push('sales.completed_at >= ?');
+    params.push(toSqlDateTime(start));
+  }
+
+  if (end) {
+    where.push('sales.completed_at < ?');
+    params.push(toSqlDateTime(addDays(end, 1)));
+  }
+
+  return {
+    clause: where.join(' AND '),
+    params,
+  };
+}
+
 function createReceiptNumber() {
   const timestamp = Date.now().toString().slice(-8);
   const random = Math.floor(Math.random() * 900 + 100);
@@ -385,8 +451,17 @@ export async function getSaleAdjustments(db: SQLiteDatabase, saleId: number) {
   );
 }
 
-export async function getSalesForShift(db: SQLiteDatabase, shiftId: number) {
-  return db.getAllAsync<SalesReportRow>(
+export async function getSalesForShift(db: SQLiteDatabase, input: ShiftSalesInput) {
+  const limit = input.limit ?? 10;
+  const offset = input.offset ?? 0;
+  const filter = buildShiftSalesWhere(input);
+  const total = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) as count
+     FROM sales
+     WHERE ${filter.clause}`,
+    ...filter.params
+  );
+  const rows = await db.getAllAsync<SalesReportRow>(
     `SELECT
        sales.*,
        users.full_name as cashier_name,
@@ -406,11 +481,19 @@ export async function getSalesForShift(db: SQLiteDatabase, shiftId: number) {
        GROUP BY sale_id
      ) adjustment_totals ON adjustment_totals.sale_id = sales.id
      LEFT JOIN payments ON payments.sale_id = sales.id
-     WHERE sales.shift_id = ?
+     WHERE ${filter.clause}
      GROUP BY sales.id
-     ORDER BY sales.completed_at DESC`,
-    shiftId
+     ORDER BY sales.completed_at DESC
+     LIMIT ? OFFSET ?`,
+    ...filter.params,
+    limit,
+    offset
   );
+
+  return {
+    rows,
+    total: total?.count ?? 0,
+  };
 }
 
 export async function adjustSaleItem(

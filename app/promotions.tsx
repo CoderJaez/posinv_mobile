@@ -29,7 +29,7 @@ import type {
   PromotionStatus,
   PromotionType,
 } from '@/lib/database/types';
-import { formatCurrency, formatDateTime } from '@/lib/format';
+import { formatCurrency, formatLocalDateTime } from '@/lib/format';
 import { useAppStore } from '@/lib/store/app-store';
 
 type PromoFormValues = {
@@ -220,8 +220,8 @@ export default function PromotionsScreen() {
         width: 230,
         render: (promotion) => (
           <Text style={styles.tableText}>
-            {promotion.starts_at ? formatDateTime(promotion.starts_at) : '-'} to{' '}
-            {promotion.ends_at ? formatDateTime(promotion.ends_at) : '-'}
+            {promotion.starts_at ? formatLocalDateTime(promotion.starts_at) : '-'} to{' '}
+            {promotion.ends_at ? formatLocalDateTime(promotion.ends_at) : '-'}
           </Text>
         ),
       },

@@ -1,12 +1,13 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { RequireRole } from '@/components/auth/RequireRole';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
+import { DateInput } from '@/components/ui/date-input';
 import { Table, type TableColumn } from '@/components/ui/Table';
 import { palette, spacing } from '@/constants/theme';
 import {
@@ -15,6 +16,7 @@ import {
   getReportSummary,
   getSalesReportRows,
   getTopSellingProducts,
+  type ReportDateFilter,
 } from '@/lib/database/reports';
 import type { ReportRange, ReportSummary, SalesReportRow } from '@/lib/database/types';
 import { buildReportInsights } from '@/lib/domain/reports';
@@ -37,15 +39,24 @@ const emptySummary: ReportSummary = {
 export default function SalesReportDetailsScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const params = useLocalSearchParams<{ range?: string }>();
+  const params = useLocalSearchParams<{ range?: string; startDate?: string; endDate?: string }>();
   const [range, setRange] = useState<ReportRange>(
     ranges.includes(params.range as ReportRange) ? (params.range as ReportRange) : 'daily'
   );
+  const [startDate, setStartDate] = useState(params.startDate ?? '');
+  const [endDate, setEndDate] = useState(params.endDate ?? '');
   const [rangeLabel, setRangeLabel] = useState('');
   const [summary, setSummary] = useState<ReportSummary>(emptySummary);
   const [rows, setRows] = useState<SalesReportRow[]>([]);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const dateFilter = useMemo<ReportDateFilter>(
+    () => ({
+      startDate,
+      endDate,
+    }),
+    [endDate, startDate]
+  );
   const saleColumns: TableColumn<SalesReportRow>[] = [
     { key: 'receipt', title: 'Receipt', accessor: 'receipt_number', width: 160 },
     {
@@ -104,8 +115,8 @@ export default function SalesReportDetailsScreen() {
 
     async function load() {
       const [summaryResult, reportRows] = await Promise.all([
-        getReportSummary(db, range),
-        getSalesReportRows(db, range, 100),
+        getReportSummary(db, range, dateFilter),
+        getSalesReportRows(db, range, 100, dateFilter),
       ]);
 
       if (mounted) {
@@ -120,7 +131,7 @@ export default function SalesReportDetailsScreen() {
     return () => {
       mounted = false;
     };
-  }, [db, range]);
+  }, [dateFilter, db, range]);
 
   async function exportCurrentReport() {
     setExporting(true);
@@ -128,11 +139,11 @@ export default function SalesReportDetailsScreen() {
 
     try {
       const [summaryResult, hourly, topSelling, payments, reportRows] = await Promise.all([
-        getReportSummary(db, range),
-        getHourlySales(db, range),
-        getTopSellingProducts(db, range, 10),
-        getPaymentBreakdown(db, range),
-        getSalesReportRows(db, range, 500),
+        getReportSummary(db, range, dateFilter),
+        getHourlySales(db, range, dateFilter),
+        getTopSellingProducts(db, range, 10, dateFilter),
+        getPaymentBreakdown(db, range, dateFilter),
+        getSalesReportRows(db, range, 500, dateFilter),
       ]);
       const insights = buildReportInsights(
         {
@@ -191,6 +202,39 @@ export default function SalesReportDetailsScreen() {
             />
           ))}
         </View>
+
+        <Card style={styles.filterCard}>
+          <Text style={styles.sectionTitle}>Date Range Filter</Text>
+          <View style={styles.filterRow}>
+            <DateInput
+              label="Start Date"
+              value={startDate}
+              onChangeText={setStartDate}
+              placeholder="YYYY-MM-DD"
+              containerStyle={styles.dateInput}
+            />
+            <DateInput
+              label="End Date"
+              value={endDate}
+              onChangeText={setEndDate}
+              placeholder="YYYY-MM-DD"
+              containerStyle={styles.dateInput}
+            />
+            <Button
+              title="Clear Dates"
+              icon="close-outline"
+              variant="secondary"
+              onPress={() => {
+                setStartDate('');
+                setEndDate('');
+              }}
+              style={styles.clearButton}
+            />
+          </View>
+          <Text style={styles.mutedText}>
+            Leave dates blank to use the selected daily, weekly, or monthly range.
+          </Text>
+        </Card>
 
         <Card style={styles.summaryCard}>
           <ReportLine label="Total Sales" value={formatCurrency(summary.total_sales)} />
@@ -252,6 +296,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
+  },
+  filterCard: {
+    gap: spacing.sm,
+    maxWidth: 720,
+  },
+  filterRow: {
+    alignItems: 'flex-end',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  dateInput: {
+    flexBasis: 180,
+    flexGrow: 1,
+    maxWidth: 240,
+  },
+  clearButton: {
+    minWidth: 140,
   },
   summaryCard: {
     gap: 0,

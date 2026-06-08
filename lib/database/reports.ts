@@ -15,6 +15,11 @@ type RangeBounds = {
   label: string;
 };
 
+export type ReportDateFilter = {
+  startDate?: string | null;
+  endDate?: string | null;
+};
+
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -31,13 +36,34 @@ function addMonths(date: Date, months: number) {
   return nextDate;
 }
 
+function parseDateInput(value?: string | null) {
+  if (!value?.trim()) {
+    return null;
+  }
+
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const [, year, month, day] = match;
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date;
+}
+
 function toSqlDateTime(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const seconds = String(date.getSeconds()).padStart(2, '0');
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const hours = String(date.getUTCHours()).padStart(2, '0');
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(date.getUTCSeconds()).padStart(2, '0');
 
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
@@ -69,10 +95,41 @@ function formatRangeLabel(range: ReportRange, start: Date, end: Date) {
   });
 }
 
+function formatCustomRangeLabel(start: Date, end: Date) {
+  const endInclusive = addDays(end, -1);
+
+  return `${start.toLocaleDateString(undefined, {
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric',
+  })} - ${endInclusive.toLocaleDateString(undefined, {
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric',
+  })}`;
+}
+
 export function getReportRangeBounds(
   range: ReportRange,
-  referenceDate = new Date()
+  referenceDate = new Date(),
+  dateFilter?: ReportDateFilter | null
 ): RangeBounds {
+  const customStart = parseDateInput(dateFilter?.startDate);
+  const customEnd = parseDateInput(dateFilter?.endDate);
+
+  if (customStart || customEnd) {
+    const firstDate = startOfDay(customStart ?? customEnd ?? referenceDate);
+    const lastDate = startOfDay(customEnd ?? customStart ?? referenceDate);
+    const start = firstDate <= lastDate ? firstDate : lastDate;
+    const end = addDays(firstDate <= lastDate ? lastDate : firstDate, 1);
+
+    return {
+      start: toSqlDateTime(start),
+      end: toSqlDateTime(end),
+      label: formatCustomRangeLabel(start, end),
+    };
+  }
+
   let start = startOfDay(referenceDate);
   let end: Date;
 
@@ -94,8 +151,12 @@ export function getReportRangeBounds(
   };
 }
 
-export async function getReportSummary(db: SQLiteDatabase, range: ReportRange) {
-  const bounds = getReportRangeBounds(range);
+export async function getReportSummary(
+  db: SQLiteDatabase,
+  range: ReportRange,
+  dateFilter?: ReportDateFilter | null
+) {
+  const bounds = getReportRangeBounds(range, new Date(), dateFilter);
   const summary = await db.getFirstAsync<ReportSummary>(
     `SELECT
        COALESCE(SUM(CASE WHEN status = 'completed' THEN total ELSE 0 END), 0) as total_sales,
@@ -147,8 +208,12 @@ export async function getReportSummary(db: SQLiteDatabase, range: ReportRange) {
   };
 }
 
-export async function getHourlySales(db: SQLiteDatabase, range: ReportRange) {
-  const bounds = getReportRangeBounds(range);
+export async function getHourlySales(
+  db: SQLiteDatabase,
+  range: ReportRange,
+  dateFilter?: ReportDateFilter | null
+) {
+  const bounds = getReportRangeBounds(range, new Date(), dateFilter);
   const rows = await db.getAllAsync<{
     hour: string;
     total_sales: number;
@@ -184,8 +249,13 @@ export async function getHourlySales(db: SQLiteDatabase, range: ReportRange) {
   });
 }
 
-export async function getTopSellingProducts(db: SQLiteDatabase, range: ReportRange, limit = 5) {
-  const bounds = getReportRangeBounds(range);
+export async function getTopSellingProducts(
+  db: SQLiteDatabase,
+  range: ReportRange,
+  limit = 5,
+  dateFilter?: ReportDateFilter | null
+) {
+  const bounds = getReportRangeBounds(range, new Date(), dateFilter);
 
   return db.getAllAsync<TopSellingProduct>(
     `SELECT
@@ -207,8 +277,12 @@ export async function getTopSellingProducts(db: SQLiteDatabase, range: ReportRan
   );
 }
 
-export async function getPaymentBreakdown(db: SQLiteDatabase, range: ReportRange) {
-  const bounds = getReportRangeBounds(range);
+export async function getPaymentBreakdown(
+  db: SQLiteDatabase,
+  range: ReportRange,
+  dateFilter?: ReportDateFilter | null
+) {
+  const bounds = getReportRangeBounds(range, new Date(), dateFilter);
 
   return db.getAllAsync<PaymentBreakdown>(
     `SELECT
@@ -227,8 +301,13 @@ export async function getPaymentBreakdown(db: SQLiteDatabase, range: ReportRange
   );
 }
 
-export async function getSalesReportRows(db: SQLiteDatabase, range: ReportRange, limit = 50) {
-  const bounds = getReportRangeBounds(range);
+export async function getSalesReportRows(
+  db: SQLiteDatabase,
+  range: ReportRange,
+  limit = 50,
+  dateFilter?: ReportDateFilter | null
+) {
+  const bounds = getReportRangeBounds(range, new Date(), dateFilter);
 
   return db.getAllAsync<SalesReportRow>(
     `SELECT

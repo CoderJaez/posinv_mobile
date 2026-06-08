@@ -9,7 +9,7 @@ import {
 import { getSaleById, getSaleItems } from '@/lib/database/sales';
 import { getSettingsMap } from '@/lib/database/settings';
 import type { SaleItemRecord, SaleRecord } from '@/lib/database/types';
-import { formatCurrency, formatDateTime } from '@/lib/format';
+import { formatCurrency, parseDatabaseDateTime } from '@/lib/format';
 
 // ─── Native Module ────────────────────────────────────────────────────────────
 
@@ -35,6 +35,13 @@ type BluetoothPrinter = {
   macAddress: string;
 };
 
+type ReceiptPayment = {
+  method: string;
+  amount: number;
+  cash_received: number | null;
+  change_due: number | null;
+};
+
 function getThermalPrinterModule() {
   if (!ThermalPrinterModule) {
     throw new Error(
@@ -51,6 +58,34 @@ function getThermalPrinterModule() {
 
 function receiptLine(label: string, value: string) {
   return `${label.padEnd(18, ' ')}${value.padStart(12, ' ')}`;
+}
+
+function formatReceiptDateTime(value: string | null) {
+  const parsed = parseDatabaseDateTime(value);
+
+  if (!parsed) {
+    return value ?? '-';
+  }
+
+  return new Intl.DateTimeFormat('en-PH', {
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(parsed);
+}
+
+function getCashPayment(payments: ReceiptPayment[]) {
+  return payments.find((payment) => payment.method === 'cash') ?? null;
+}
+
+function getPaymentLabel(payments: ReceiptPayment[]) {
+  if (payments.length === 0) {
+    return '-';
+  }
+
+  return payments.map((payment) => payment.method.toUpperCase()).join(', ');
 }
 
 function escapeHtml(value: string | number | null | undefined) {
@@ -243,13 +278,18 @@ function mapPrintError(error: unknown): string {
 export function buildReceiptText(
   sale: SaleRecord,
   items: SaleItemRecord[],
-  settings: Record<string, string>
+  settings: Record<string, string>,
+  payments: ReceiptPayment[] = []
 ) {
+  const cashPayment = getCashPayment(payments);
+  const cashReceived = cashPayment?.cash_received ?? null;
+  const changeDue =
+    cashReceived == null ? cashPayment?.change_due ?? null : Math.max(0, cashReceived - sale.total);
   const lines = [
     settings.receipt_header || settings.store_name || 'StoreMate Convenience Store',
     settings.branch_name ? `Branch: ${settings.branch_name}` : '',
     `Receipt: ${sale.receipt_number}`,
-    `Date: ${formatDateTime(sale.completed_at)}`,
+    `Date: ${formatReceiptDateTime(sale.completed_at)}`,
     `Cashier: ${sale.cashier_name ?? sale.cashier_id}`,
     ''.padEnd(32, '-'),
     ...items
@@ -262,6 +302,9 @@ export function buildReceiptText(
     receiptLine('Subtotal', formatCurrency(sale.subtotal)),
     receiptLine('Discount', formatCurrency(sale.discount_total)),
     receiptLine('TOTAL', formatCurrency(sale.total)),
+    receiptLine('Payment', getPaymentLabel(payments)),
+    cashReceived == null ? '' : receiptLine('Cash Tendered', formatCurrency(cashReceived)),
+    changeDue == null ? '' : receiptLine('Change', formatCurrency(changeDue)),
     settings.receipt_footer || 'Thank you for shopping with us.',
   ];
 
@@ -275,8 +318,13 @@ export function buildReceiptText(
 export function buildReceiptPayload(
   sale: SaleRecord,
   items: SaleItemRecord[],
-  settings: Record<string, string>
+  settings: Record<string, string>,
+  payments: ReceiptPayment[] = []
 ): string {
+  const cashPayment = getCashPayment(payments);
+  const cashReceived = cashPayment?.cash_received ?? null;
+  const changeDue =
+    cashReceived == null ? cashPayment?.change_due ?? null : Math.max(0, cashReceived - sale.total);
   const storeName = escapeHtml(
     settings.receipt_header || settings.store_name || 'StoreMate Convenience Store'
   );
@@ -300,7 +348,7 @@ export function buildReceiptPayload(
     `[C]<b>${storeName}</b>\n`,
     settings.branch_name ? `[C]${escapeHtml(settings.branch_name)}\n` : '',
     `[C]${escapeHtml(sale.receipt_number)}\n`,
-    `[C]${escapeHtml(formatDateTime(sale.completed_at))}\n`,
+    `[C]${escapeHtml(formatReceiptDateTime(sale.completed_at))}\n`,
     `[L]Cashier: ${escapeHtml(sale.cashier_name ?? String(sale.cashier_id))}\n`,
     `[C]${divider}\n`,
     itemLines,
@@ -308,6 +356,9 @@ export function buildReceiptPayload(
     `[L]Subtotal[R]${escapeHtml(formatCurrency(sale.subtotal))}\n`,
     `[L]Discount[R]${escapeHtml(formatCurrency(sale.discount_total))}\n`,
     `[L]<b>TOTAL[R]${escapeHtml(formatCurrency(sale.total))}</b>\n`,
+    `[L]Payment[R]${escapeHtml(getPaymentLabel(payments))}\n`,
+    cashReceived == null ? '' : `[L]Cash Tendered[R]${escapeHtml(formatCurrency(cashReceived))}\n`,
+    changeDue == null ? '' : `[L]Change[R]${escapeHtml(formatCurrency(changeDue))}\n`,
     `[C]${divider}\n`,
     `[C]${footer}\n`,
     '\n\n\n', // feed lines so the receipt clears the cutter
@@ -323,17 +374,18 @@ async function sendReceiptToPrinter(
   input: {
     sale: SaleRecord;
     items: SaleItemRecord[];
+    payments: ReceiptPayment[];
     settings: Record<string, string>;
     userId?: number | null;
   }
 ) {
-  const { sale, items, settings } = input;
+  const { sale, items, payments, settings } = input;
 
   const targetPrinter = await resolveBluetoothPrinter(settings);
   const widthMM = getPaperWidthMM(settings);
   const configuredPrinterName = getConfiguredPrinterName(settings);
-  const payloadText = buildReceiptText(sale, items, settings);
-  const payloadThermal = buildReceiptPayload(sale, items, settings);
+  const payloadText = buildReceiptText(sale, items, settings, payments);
+  const payloadThermal = buildReceiptPayload(sale, items, settings, payments);
 
   const printJobId = await createPrintJob(db, {
     saleId: sale.id,
@@ -374,19 +426,36 @@ async function sendReceiptToPrinter(
 /**
  * Manually triggers a receipt print for a completed sale.
  */
+async function getReceiptPayments(db: SQLiteDatabase, saleId: number) {
+  return db.getAllAsync<ReceiptPayment>(
+    `SELECT method, amount, cash_received, change_due
+     FROM payments
+     WHERE sale_id = ?
+     ORDER BY id ASC`,
+    saleId
+  );
+}
+
 export async function printReceiptForSale(
   db: SQLiteDatabase,
   input: { saleId: number; userId?: number | null }
 ) {
-  const [sale, items, settings] = await Promise.all([
+  const [sale, items, payments, settings] = await Promise.all([
     getSaleById(db, input.saleId),
     getSaleItems(db, input.saleId),
+    getReceiptPayments(db, input.saleId),
     getSettingsMap(db),
   ]);
 
   if (!sale) throw new Error('Sale not found.');
 
-  return sendReceiptToPrinter(db, { sale, items, settings, userId: input.userId ?? null });
+  return sendReceiptToPrinter(db, {
+    sale,
+    items,
+    payments,
+    settings,
+    userId: input.userId ?? null,
+  });
 }
 
 /**
@@ -397,9 +466,10 @@ export async function autoPrintReceiptForSale(
   db: SQLiteDatabase,
   input: { saleId: number; userId?: number | null }
 ) {
-  const [sale, items, settings] = await Promise.all([
+  const [sale, items, payments, settings] = await Promise.all([
     getSaleById(db, input.saleId),
     getSaleItems(db, input.saleId),
+    getReceiptPayments(db, input.saleId),
     getSettingsMap(db),
   ]);
 
@@ -416,6 +486,7 @@ export async function autoPrintReceiptForSale(
   const printJobId = await sendReceiptToPrinter(db, {
     sale,
     items,
+    payments,
     settings,
     userId: input.userId ?? null,
   });

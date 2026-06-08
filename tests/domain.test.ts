@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import { buildReportInsights, summarizeSalesForReport } from '../lib/domain/reports';
 import { calculateCashChange, calculateSaleTotals } from '../lib/domain/sales';
 import { calculateNewStock, planBatchDeductions } from '../lib/domain/stock';
+import { parseDatabaseDateTime, parseLocalDateTime } from '../lib/format';
 
 describe('sales calculations', () => {
   it('calculates subtotal, discount, total, and cash change', () => {
@@ -118,5 +119,28 @@ describe('report summaries', () => {
     assert.match(insights[0], /Net sales are PHP 195.00/);
     assert.match(insights[1], /10AM/);
     assert.match(insights[2], /Coke 500ml/);
+  });
+});
+
+describe('date formatting helpers', () => {
+  it('treats SQLite timestamp strings without timezone as UTC', () => {
+    assert.equal(
+      parseDatabaseDateTime('2026-06-08 02:00:00')?.toISOString(),
+      '2026-06-08T02:00:00.000Z'
+    );
+    assert.equal(
+      parseDatabaseDateTime('2026-06-08T10:00:00+08:00')?.toISOString(),
+      '2026-06-08T02:00:00.000Z'
+    );
+  });
+
+  it('keeps manually entered timestamp strings as local wall-clock time', () => {
+    const parsed = parseLocalDateTime('2026-06-08 10:30:00');
+
+    assert.equal(parsed?.getFullYear(), 2026);
+    assert.equal(parsed?.getMonth(), 5);
+    assert.equal(parsed?.getDate(), 8);
+    assert.equal(parsed?.getHours(), 10);
+    assert.equal(parsed?.getMinutes(), 30);
   });
 });

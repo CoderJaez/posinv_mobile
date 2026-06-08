@@ -9,6 +9,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
+import { DateInput } from '@/components/ui/date-input';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Table, type TableColumn } from '@/components/ui/Table';
@@ -78,6 +79,11 @@ export default function ShiftSummaryScreen() {
   const setCurrentShift = useAppStore((state) => state.setCurrentShift);
   const [summary, setSummary] = useState<ShiftSummary | null>(null);
   const [sales, setSales] = useState<SalesReportRow[]>([]);
+  const [salesTotal, setSalesTotal] = useState(0);
+  const [salesStartDate, setSalesStartDate] = useState('');
+  const [salesEndDate, setSalesEndDate] = useState('');
+  const [salesPage, setSalesPage] = useState(1);
+  const [salesPerPage, setSalesPerPage] = useState(10);
   const [voidingSale, setVoidingSale] = useState<SalesReportRow | null>(null);
   const [voidReason, setVoidReason] = useState('');
   const [voidRestock, setVoidRestock] = useState(true);
@@ -114,17 +120,25 @@ export default function ShiftSummaryScreen() {
     if (!shiftId) {
       setSummary(null);
       setSales([]);
+      setSalesTotal(0);
       setLoading(false);
       return;
     }
 
     setLoading(true);
-    const [nextSummary, nextSales] = await Promise.all([
+    const [nextSummary, nextSalesResult] = await Promise.all([
       getShiftSummary(db, shiftId),
-      getSalesForShift(db, shiftId),
+      getSalesForShift(db, {
+        shiftId,
+        startDate: salesStartDate,
+        endDate: salesEndDate,
+        limit: salesPerPage,
+        offset: (salesPage - 1) * salesPerPage,
+      }),
     ]);
     setSummary(nextSummary);
-    setSales(nextSales);
+    setSales(nextSalesResult.rows);
+    setSalesTotal(nextSalesResult.total);
     setLoading(false);
 
     if (nextSummary && nextSummary.status === 'open') {
@@ -135,11 +149,15 @@ export default function ShiftSummaryScreen() {
         nextSummary.cash_out_total;
       setValue('actualCash', expectedCash.toFixed(2));
     }
-  }, [db, setValue, shiftId]);
+  }, [db, salesEndDate, salesPage, salesPerPage, salesStartDate, setValue, shiftId]);
 
   useEffect(() => {
     refreshSummary();
   }, [refreshSummary]);
+
+  useEffect(() => {
+    setSalesPage(1);
+  }, [salesEndDate, salesPerPage, salesStartDate]);
 
   const printSaleReceipt = useCallback(
     async (sale: SalesReportRow) => {
@@ -334,6 +352,15 @@ export default function ShiftSummaryScreen() {
     : 0;
   const variance =
     summary?.actual_cash == null ? null : Number((summary.actual_cash - expectedCash).toFixed(2));
+  const salesPageCount = Math.max(1, Math.ceil(salesTotal / salesPerPage));
+  const salesFirstRow = salesTotal === 0 ? 0 : (salesPage - 1) * salesPerPage + 1;
+  const salesLastRow = Math.min(salesTotal, salesPage * salesPerPage);
+
+  useEffect(() => {
+    if (salesPage > salesPageCount) {
+      setSalesPage(salesPageCount);
+    }
+  }, [salesPage, salesPageCount]);
 
   return (
     <AppShell
@@ -501,7 +528,47 @@ export default function ShiftSummaryScreen() {
                   Transactions handled by {summary.cashier_name} during this shift.
                 </Text>
               </View>
-              <Badge status="inactive" label={`${sales.length} rows`} />
+              <Badge status="inactive" label={`${salesFirstRow}-${salesLastRow} of ${salesTotal}`} />
+            </View>
+            <View style={styles.salesControls}>
+              <DateInput
+                label="Start Date"
+                value={salesStartDate}
+                onChangeText={setSalesStartDate}
+                placeholder="YYYY-MM-DD"
+                containerStyle={styles.dateInput}
+              />
+              <DateInput
+                label="End Date"
+                value={salesEndDate}
+                onChangeText={setSalesEndDate}
+                placeholder="YYYY-MM-DD"
+                containerStyle={styles.dateInput}
+              />
+              <View style={styles.perPageGroup}>
+                <Text style={styles.controlLabel}>Rows</Text>
+                <View style={styles.perPageRow}>
+                  {[10, 20, 50].map((option) => (
+                    <Button
+                      key={option}
+                      title={String(option)}
+                      size="sm"
+                      variant={salesPerPage === option ? 'primary' : 'outline'}
+                      onPress={() => setSalesPerPage(option)}
+                    />
+                  ))}
+                </View>
+              </View>
+              <Button
+                title="Clear"
+                icon="close-outline"
+                variant="secondary"
+                onPress={() => {
+                  setSalesStartDate('');
+                  setSalesEndDate('');
+                }}
+                style={styles.clearButton}
+              />
             </View>
             <Table
               columns={saleColumns}
@@ -509,6 +576,25 @@ export default function ShiftSummaryScreen() {
               emptyLabel="No sales recorded for this shift yet."
               keyExtractor={(sale) => String(sale.id)}
             />
+            <View style={styles.paginationRow}>
+              <Button
+                title="Previous"
+                size="sm"
+                variant="outline"
+                disabled={salesPage <= 1}
+                onPress={() => setSalesPage((page) => Math.max(1, page - 1))}
+              />
+              <Text style={styles.paginationText}>
+                Page {Math.min(salesPage, salesPageCount)} of {salesPageCount}
+              </Text>
+              <Button
+                title="Next"
+                size="sm"
+                variant="outline"
+                disabled={salesPage >= salesPageCount}
+                onPress={() => setSalesPage((page) => Math.min(salesPageCount, page + 1))}
+              />
+            </View>
           </Card>
 
           <Card padded={false}>
@@ -720,6 +806,47 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     textAlign: 'right',
+  },
+  salesControls: {
+    alignItems: 'flex-end',
+    borderTopColor: palette.border,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    padding: spacing.md,
+  },
+  dateInput: {
+    flexBasis: 170,
+    flexGrow: 1,
+    maxWidth: 220,
+  },
+  perPageGroup: {
+    gap: spacing.xs,
+  },
+  controlLabel: {
+    color: palette.ink,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  perPageRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  clearButton: {
+    minWidth: 110,
+  },
+  paginationRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    justifyContent: 'flex-end',
+    padding: spacing.md,
+  },
+  paginationText: {
+    color: palette.ink,
+    fontSize: 13,
+    fontWeight: '800',
   },
   errorText: {
     color: palette.danger,
