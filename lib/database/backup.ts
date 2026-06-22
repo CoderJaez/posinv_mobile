@@ -2,7 +2,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import {
   backupDatabaseAsync,
-  deserializeDatabaseAsync,
+  openDatabaseAsync,
   type SQLiteDatabase,
 } from 'expo-sqlite';
 
@@ -22,8 +22,64 @@ function getBackupDirectory() {
   return directory;
 }
 
+function getImportDirectory() {
+  const directory = new Directory(Paths.cache, 'database-imports');
+
+  if (!directory.exists) {
+    directory.create({ idempotent: true, intermediates: true });
+  }
+
+  return directory;
+}
+
 function fileNameFromUri(uri: string) {
   return decodeURIComponent(uri.split('/').pop() || 'database-backup.db');
+}
+
+function hasSqliteHeader(bytes: Uint8Array) {
+  const header = 'SQLite format 3\u0000';
+
+  if (bytes.length < header.length) {
+    return false;
+  }
+
+  return Array.from(header).every((char, index) => bytes[index] === char.charCodeAt(0));
+}
+
+async function validateStoreMateBackup(db: SQLiteDatabase) {
+  const integrity = await db.getFirstAsync<{ integrity_check: string }>(
+    'PRAGMA integrity_check'
+  );
+
+  if (integrity?.integrity_check !== 'ok') {
+    throw new Error('Selected backup failed SQLite integrity check.');
+  }
+
+  const requiredTables = [
+    'users',
+    'products',
+    'categories',
+    'sales',
+    'sale_items',
+    'payments',
+    'app_settings',
+  ];
+  const placeholders = requiredTables.map(() => '?').join(', ');
+  const rows = await db.getAllAsync<{ name: string }>(
+    `SELECT name
+     FROM sqlite_master
+     WHERE type = 'table'
+       AND name IN (${placeholders})`,
+    ...requiredTables
+  );
+  const foundTables = new Set(rows.map((row) => row.name));
+  const missingTables = requiredTables.filter((table) => !foundTables.has(table));
+
+  if (missingTables.length > 0) {
+    throw new Error(
+      `Selected file is not a StoreMate POS backup. Missing tables: ${missingTables.join(', ')}.`
+    );
+  }
 }
 
 async function writeDatabaseBackup(
@@ -90,17 +146,23 @@ export async function importDatabaseBackup(
     throw new Error('No backup file selected.');
   }
 
+  const pickedBytes = await pickedFile.bytes();
+
+  if (!hasSqliteHeader(pickedBytes)) {
+    throw new Error('Selected file is not a valid SQLite database backup.');
+  }
+
   const safetyBackup = await writeDatabaseBackup(db, 'storemate-pos-before-import', input.userId, false);
-  const importedDb = await deserializeDatabaseAsync(await pickedFile.bytes());
+  const importDirectory = getImportDirectory();
+  const importFile = new File(importDirectory, `storemate-pos-import-${timestampForFile()}.db`);
+  let importedDb: SQLiteDatabase | null = null;
+
+  importFile.create({ overwrite: true, intermediates: true });
+  importFile.write(pickedBytes);
 
   try {
-    const integrity = await importedDb.getFirstAsync<{ integrity_check: string }>(
-      'PRAGMA integrity_check'
-    );
-
-    if (integrity?.integrity_check !== 'ok') {
-      throw new Error('Selected backup failed SQLite integrity check.');
-    }
+    importedDb = await openDatabaseAsync(importFile.name, { useNewConnection: true }, importDirectory.uri);
+    await validateStoreMateBackup(importedDb);
 
     await backupDatabaseAsync({
       sourceDatabase: importedDb,
@@ -126,6 +188,20 @@ export async function importDatabaseBackup(
       safetyBackupUri: safetyBackup.uri,
     };
   } finally {
-    await importedDb.closeAsync();
+    if (importedDb) {
+      await importedDb.closeAsync();
+    }
+
+    const temporaryFiles = [
+      importFile,
+      new File(importDirectory, `${importFile.name}-wal`),
+      new File(importDirectory, `${importFile.name}-shm`),
+    ];
+
+    for (const temporaryFile of temporaryFiles) {
+      if (temporaryFile.exists) {
+        temporaryFile.delete();
+      }
+    }
   }
 }

@@ -122,14 +122,16 @@ export const useCartStore = create<CartState>((set, get) => ({
           item.appliedPromotionName !== appliedPromotionName
         ) {
           changed = true;
+
+          return {
+            ...item,
+            discountAmount,
+            appliedPromotionId,
+            appliedPromotionName,
+          };
         }
 
-        return {
-          ...item,
-          discountAmount,
-          appliedPromotionId,
-          appliedPromotionName,
-        };
+        return item;
       });
 
       return changed ? { items } : state;

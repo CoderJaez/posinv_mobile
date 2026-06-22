@@ -117,7 +117,6 @@ export async function getShiftSummary(db: SQLiteDatabase, shiftId: number) {
          FROM payments
          INNER JOIN sales ON sales.id = payments.sale_id
          WHERE sales.shift_id = shifts.id
-           AND payments.method = 'cash'
            AND sales.status = 'completed'
        ), 0) as cash_sales_total
      FROM shifts

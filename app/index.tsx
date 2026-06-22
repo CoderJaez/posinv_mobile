@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -23,26 +23,20 @@ import { formatRole } from '@/lib/auth/roles';
 import { getCategories, getProducts } from '@/lib/database/queries';
 import { getPromotions } from '@/lib/database/promotions';
 import { holdTransaction } from '@/lib/database/sales';
-import type { Category, ProductListItem, PromotionListItem } from '@/lib/database/types';
+import type { CartItemSnapshot, Category, ProductListItem, PromotionListItem } from '@/lib/database/types';
 import { calculatePromotionDiscounts } from '@/lib/domain/promotions';
 import { formatCurrency } from '@/lib/format';
 import { useAppStore } from '@/lib/store/app-store';
-import { useCartStore } from '@/lib/store/cart-store';
+import { getCartTotals, useCartStore } from '@/lib/store/cart-store';
 
 export default function PosCheckoutScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const currentUser = useAppStore((state) => state.currentUser);
   const currentShift = useAppStore((state) => state.currentShift);
-  const cartItems = useCartStore((state) => state.items);
   const addProduct = useCartStore((state) => state.addProduct);
-  const incrementItem = useCartStore((state) => state.incrementItem);
-  const decrementItem = useCartStore((state) => state.decrementItem);
   const updateItemPrice = useCartStore((state) => state.updateItemPrice);
-  const updatePromotionDiscounts = useCartStore((state) => state.updatePromotionDiscounts);
-  const removeItem = useCartStore((state) => state.removeItem);
   const clearCart = useCartStore((state) => state.clearCart);
-  const getTotals = useCartStore((state) => state.getTotals);
   const [products, setProducts] = useState<ProductListItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [promotions, setPromotions] = useState<PromotionListItem[]>([]);
@@ -50,12 +44,11 @@ export default function PosCheckoutScreen() {
   const [search, setSearch] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const [holding, setHolding] = useState(false);
-  const [priceItemId, setPriceItemId] = useState<number | null>(null);
+  const [priceItem, setPriceItem] = useState<CartItemSnapshot | null>(null);
   const [priceValue, setPriceValue] = useState('');
   const [priceReason, setPriceReason] = useState('');
   const { width } = useWindowDimensions();
   const compact = width < 980;
-  const totals = getTotals();
 
   const loadCatalog = useCallback(async () => {
     const [nextProducts, nextCategories, nextPromotions] = await Promise.all([
@@ -93,17 +86,22 @@ export default function PosCheckoutScreen() {
     });
   }, [activeCategory, products, search]);
 
-  const promotionDiscounts = useMemo(
-    () => calculatePromotionDiscounts(cartItems, promotions),
-    [cartItems, promotions]
+  const addProductToCart = useCallback(
+    (product: ProductListItem) => {
+      addProduct(product);
+      setNotice((currentNotice) => (currentNotice ? null : currentNotice));
+    },
+    [addProduct]
   );
 
-  useEffect(() => {
-    updatePromotionDiscounts(promotionDiscounts);
-  }, [promotionDiscounts, updatePromotionDiscounts]);
+  const openHeldTransactions = useCallback(() => {
+    router.push('/hold-transactions' as never);
+  }, [router]);
 
-  async function holdCurrentTransaction() {
-    if (!currentUser || !currentShift || cartItems.length === 0) {
+  const holdCurrentTransaction = useCallback(async () => {
+    const items = useCartStore.getState().items;
+
+    if (!currentUser || !currentShift || items.length === 0) {
       return;
     }
 
@@ -112,7 +110,7 @@ export default function PosCheckoutScreen() {
       await holdTransaction(db, {
         cashierId: currentUser.id,
         shiftId: currentShift.id,
-        items: cartItems,
+        items,
       });
       clearCart();
       setNotice('Transaction held.');
@@ -121,41 +119,37 @@ export default function PosCheckoutScreen() {
     } finally {
       setHolding(false);
     }
-  }
+  }, [clearCart, currentShift, currentUser, db]);
 
-  function voidTransaction() {
-    if (cartItems.length === 0) {
+  const voidTransaction = useCallback(() => {
+    if (useCartStore.getState().items.length === 0) {
       return;
     }
 
     clearCart();
     setNotice('Current transaction voided.');
-  }
+  }, [clearCart]);
 
-  function goToPayment() {
-    if (cartItems.length === 0) {
+  const goToPayment = useCallback(() => {
+    if (useCartStore.getState().items.length === 0) {
       setNotice('Add at least one item before payment.');
       return;
     }
 
     router.push('/payment' as never);
-  }
+  }, [router]);
 
-  const priceItem = cartItems.find((item) => item.productId === priceItemId) ?? null;
-
-  function openPriceEditor(productId: number) {
-    const item = cartItems.find((cartItem) => cartItem.productId === productId);
-
-    if (!item) {
-      return;
-    }
-
-    setPriceItemId(productId);
+  const openPriceEditor = useCallback((item: CartItemSnapshot) => {
+    setPriceItem(item);
     setPriceValue(String(item.unitPrice));
     setPriceReason(item.priceOverrideReason ?? 'Manual price adjustment');
-  }
+  }, []);
 
-  function savePriceOverride() {
+  const closePriceEditor = useCallback(() => {
+    setPriceItem(null);
+  }, []);
+
+  const savePriceOverride = useCallback(() => {
     if (!priceItem) {
       return;
     }
@@ -168,9 +162,9 @@ export default function PosCheckoutScreen() {
     }
 
     updateItemPrice(priceItem.productId, nextPrice, priceReason);
-    setPriceItemId(null);
+    setPriceItem(null);
     setNotice(`${priceItem.name} price updated.`);
-  }
+  }, [priceItem, priceReason, priceValue, updateItemPrice]);
 
   return (
     <AppShell
@@ -209,196 +203,40 @@ export default function PosCheckoutScreen() {
         </View>
       }
       scroll={false}>
+      <CartPromotionUpdater promotions={promotions} />
+
       <View style={[styles.posLayout, compact && styles.posLayoutCompact]}>
-        <View style={styles.catalogPane}>
-          <View style={styles.searchRow}>
-            <Input
-              icon="search-outline"
-              onChangeText={setSearch}
-              placeholder="Scan barcode or search product..."
-              value={search}
-              containerStyle={styles.searchInput}
-            />
-            <Button
-              title="Held"
-              variant="secondary"
-              icon="archive-outline"
-              onPress={() => router.push('/hold-transactions' as never)}
-            />
-          </View>
+        <ProductCatalog
+          activeCategory={activeCategory}
+          categories={categories}
+          notice={notice}
+          onAddProduct={addProductToCart}
+          onCategoryChange={setActiveCategory}
+          onOpenHeldTransactions={openHeldTransactions}
+          onSearchChange={setSearch}
+          search={search}
+          visibleProducts={visibleProducts}
+        />
 
-          <View style={styles.categoryRow}>
-            {['All', ...categories.map((category) => category.name)].map((category) => (
-              <Pressable
-                key={category}
-                onPress={() => setActiveCategory(category)}
-                style={[
-                  styles.categoryPill,
-                  activeCategory === category && styles.categoryPillActive,
-                ]}>
-                <Text
-                  style={[
-                    styles.categoryText,
-                    activeCategory === category && styles.categoryTextActive,
-                  ]}>
-                  {category}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-
-          {notice ? <Text style={styles.notice}>{notice}</Text> : null}
-
-          <ScrollView contentContainerStyle={styles.productGrid}>
-            {visibleProducts.map((product) => {
-              const outOfStock = product.current_stock <= 0;
-
-              return (
-                <Pressable
-                  disabled={outOfStock}
-                  key={product.id}
-                  onPress={() => {
-                    addProduct(product);
-                    setNotice(null);
-                  }}
-                  style={({ pressed }) => [
-                    styles.productCard,
-                    outOfStock && styles.productCardDisabled,
-                    pressed && styles.productCardPressed,
-                  ]}>
-                  <ProductImage
-                    imageColor={product.image_color}
-                    imageUri={product.image_uri}
-                    size={58}
-                    style={styles.productArt}
-                  />
-                  <Text style={styles.productName} numberOfLines={2}>
-                    {product.name}
-                  </Text>
-                  <Text style={styles.productPrice}>{formatCurrency(product.regular_price)}</Text>
-                  <Text style={styles.stockText}>Stock: {product.current_stock}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        <Card style={styles.orderPane} padded={false}>
-          <View style={styles.orderHeader}>
-            <Text style={styles.orderTitle}>Current Order ({cartItems.length})</Text>
-            <Pressable onPress={voidTransaction}>
-              <Ionicons name="trash-outline" size={20} color={palette.surface} />
-            </Pressable>
-          </View>
-
-          <ScrollView contentContainerStyle={styles.cartList}>
-            {cartItems.length === 0 ? (
-              <View style={styles.emptyCart}>
-                <Ionicons name="basket-outline" size={30} color={palette.inkMuted} />
-                <Text style={styles.emptyCartText}>Tap a product to start checkout.</Text>
-              </View>
-            ) : (
-              cartItems.map((item) => (
-                <View key={item.productId} style={styles.cartItem}>
-                  <ProductImage
-                    imageColor={item.imageColor}
-                    imageUri={item.imageUri}
-                    size={38}
-                    style={styles.cartArt}
-                  />
-                  <View style={styles.cartCopy}>
-                    <Text style={styles.cartName}>{item.name}</Text>
-                    <Text style={styles.cartMeta}>
-                      {item.quantity} x {formatCurrency(item.unitPrice)}
-                    </Text>
-                    {item.priceOverrideReason ? (
-                      <Text style={styles.overrideText}>Adjusted from {formatCurrency(item.baseUnitPrice)}</Text>
-                    ) : null}
-                    {item.appliedPromotionName && item.discountAmount > 0 ? (
-                      <Text style={styles.promoText}>
-                        {item.appliedPromotionName}: -{formatCurrency(item.discountAmount)}
-                      </Text>
-                    ) : null}
-                    <View style={styles.quantityControls}>
-                      <Pressable
-                        onPress={() => decrementItem(item.productId)}
-                        style={styles.quantityButton}>
-                        <Ionicons name="remove" size={16} color={palette.ink} />
-                      </Pressable>
-                      <Text style={styles.quantityText}>{item.quantity}</Text>
-                      <Pressable
-                        onPress={() => incrementItem(item.productId)}
-                        style={styles.quantityButton}>
-                        <Ionicons name="add" size={16} color={palette.ink} />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => openPriceEditor(item.productId)}
-                        style={styles.priceButton}>
-                        <Ionicons name="pricetag-outline" size={15} color={palette.primaryDark} />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => removeItem(item.productId)}
-                        style={styles.removeButton}>
-                        <Ionicons name="close" size={15} color={palette.danger} />
-                      </Pressable>
-                    </View>
-                  </View>
-                  <Text style={styles.cartPrice}>
-                    {formatCurrency(item.quantity * item.unitPrice)}
-                  </Text>
-                </View>
-              ))
-            )}
-          </ScrollView>
-
-          <View style={styles.totals}>
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Subtotal</Text>
-              <Text style={styles.totalValue}>{formatCurrency(totals.subtotal)}</Text>
-            </View>
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Discount</Text>
-              <Text style={styles.totalValue}>{formatCurrency(totals.discountTotal)}</Text>
-            </View>
-            <View style={styles.grandTotalRow}>
-              <Text style={styles.grandTotalLabel}>TOTAL</Text>
-              <Text style={styles.grandTotalValue}>{formatCurrency(totals.total)}</Text>
-            </View>
-          </View>
-
-          <View style={styles.orderActions}>
-            <Button
-              title="Hold"
-              variant="outline"
-              icon="archive-outline"
-              style={styles.actionButton}
-              loading={holding}
-              onPress={holdCurrentTransaction}
-            />
-            <Button
-              title="Void"
-              variant="outline"
-              icon="close-circle-outline"
-              style={styles.actionButton}
-              onPress={voidTransaction}
-            />
-          </View>
-          <View style={styles.payWrap}>
-            <Button title="Pay" icon="card-outline" fullWidth size="lg" onPress={goToPayment} />
-          </View>
-        </Card>
+        <OrderPanel
+          holding={holding}
+          onGoToPayment={goToPayment}
+          onHoldTransaction={holdCurrentTransaction}
+          onOpenPriceEditor={openPriceEditor}
+          onVoidTransaction={voidTransaction}
+        />
       </View>
 
       <Modal
         visible={priceItem != null}
         title="Adjust Item Price"
-        onClose={() => setPriceItemId(null)}
+        onClose={closePriceEditor}
         footer={
           <View style={styles.modalFooter}>
             <Button
               title="Cancel"
               variant="secondary"
-              onPress={() => setPriceItemId(null)}
+              onPress={closePriceEditor}
               style={styles.modalButton}
             />
             <Button
@@ -432,6 +270,302 @@ export default function PosCheckoutScreen() {
   );
 }
 
+type ProductCatalogProps = {
+  activeCategory: string;
+  categories: Category[];
+  notice: string | null;
+  onAddProduct: (product: ProductListItem) => void;
+  onCategoryChange: (category: string) => void;
+  onOpenHeldTransactions: () => void;
+  onSearchChange: (value: string) => void;
+  search: string;
+  visibleProducts: ProductListItem[];
+};
+
+const ProductCatalog = memo(function ProductCatalog({
+  activeCategory,
+  categories,
+  notice,
+  onAddProduct,
+  onCategoryChange,
+  onOpenHeldTransactions,
+  onSearchChange,
+  search,
+  visibleProducts,
+}: ProductCatalogProps) {
+  const categoryOptions = useMemo(
+    () => ['All', ...categories.map((category) => category.name)],
+    [categories]
+  );
+
+  return (
+    <View style={styles.catalogPane}>
+      <View style={styles.searchRow}>
+        <Input
+          icon="search-outline"
+          onChangeText={onSearchChange}
+          placeholder="Scan barcode or search product..."
+          value={search}
+          containerStyle={styles.searchInput}
+        />
+        <Button
+          title="Held"
+          variant="secondary"
+          icon="archive-outline"
+          onPress={onOpenHeldTransactions}
+        />
+      </View>
+
+      <View style={styles.categoryRow}>
+        {categoryOptions.map((category) => (
+          <CategoryPill
+            active={activeCategory === category}
+            category={category}
+            key={category}
+            onPress={onCategoryChange}
+          />
+        ))}
+      </View>
+
+      {notice ? <Text style={styles.notice}>{notice}</Text> : null}
+
+      <ScrollView contentContainerStyle={styles.productGrid}>
+        {visibleProducts.map((product) => (
+          <ProductCard key={product.id} onAddProduct={onAddProduct} product={product} />
+        ))}
+      </ScrollView>
+    </View>
+  );
+});
+
+type CategoryPillProps = {
+  active: boolean;
+  category: string;
+  onPress: (category: string) => void;
+};
+
+const CategoryPill = memo(function CategoryPill({ active, category, onPress }: CategoryPillProps) {
+  const handlePress = useCallback(() => {
+    onPress(category);
+  }, [category, onPress]);
+
+  return (
+    <Pressable
+      onPress={handlePress}
+      style={[styles.categoryPill, active && styles.categoryPillActive]}>
+      <Text style={[styles.categoryText, active && styles.categoryTextActive]}>{category}</Text>
+    </Pressable>
+  );
+});
+
+type ProductCardProps = {
+  onAddProduct: (product: ProductListItem) => void;
+  product: ProductListItem;
+};
+
+const ProductCard = memo(function ProductCard({ onAddProduct, product }: ProductCardProps) {
+  const outOfStock = product.current_stock <= 0;
+  const handlePress = useCallback(() => {
+    onAddProduct(product);
+  }, [onAddProduct, product]);
+
+  return (
+    <Pressable
+      disabled={outOfStock}
+      onPress={handlePress}
+      style={({ pressed }) => [
+        styles.productCard,
+        outOfStock && styles.productCardDisabled,
+        pressed && styles.productCardPressed,
+      ]}>
+      <ProductImage
+        imageColor={product.image_color}
+        imageUri={product.image_uri}
+        size={58}
+        style={styles.productArt}
+      />
+      <Text style={styles.productName} numberOfLines={2}>
+        {product.name}
+      </Text>
+      <Text style={styles.productPrice}>{formatCurrency(product.regular_price)}</Text>
+      <Text style={styles.stockText}>Stock: {product.current_stock}</Text>
+    </Pressable>
+  );
+});
+
+type OrderPanelProps = {
+  holding: boolean;
+  onGoToPayment: () => void;
+  onHoldTransaction: () => void;
+  onOpenPriceEditor: (item: CartItemSnapshot) => void;
+  onVoidTransaction: () => void;
+};
+
+const OrderPanel = memo(function OrderPanel({
+  holding,
+  onGoToPayment,
+  onHoldTransaction,
+  onOpenPriceEditor,
+  onVoidTransaction,
+}: OrderPanelProps) {
+  const cartItems = useCartStore((state) => state.items);
+  const incrementItem = useCartStore((state) => state.incrementItem);
+  const decrementItem = useCartStore((state) => state.decrementItem);
+  const removeItem = useCartStore((state) => state.removeItem);
+  const totals = useMemo(() => getCartTotals(cartItems), [cartItems]);
+
+  return (
+    <Card style={styles.orderPane} padded={false}>
+      <View style={styles.orderHeader}>
+        <Text style={styles.orderTitle}>Current Order ({cartItems.length})</Text>
+        <Pressable onPress={onVoidTransaction}>
+          <Ionicons name="trash-outline" size={20} color={palette.surface} />
+        </Pressable>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.cartList}>
+        {cartItems.length === 0 ? (
+          <View style={styles.emptyCart}>
+            <Ionicons name="basket-outline" size={30} color={palette.inkMuted} />
+            <Text style={styles.emptyCartText}>Tap a product to start checkout.</Text>
+          </View>
+        ) : (
+          cartItems.map((item) => (
+            <CartItemRow
+              item={item}
+              key={item.productId}
+              onDecrement={decrementItem}
+              onIncrement={incrementItem}
+              onOpenPriceEditor={onOpenPriceEditor}
+              onRemove={removeItem}
+            />
+          ))
+        )}
+      </ScrollView>
+
+      <View style={styles.totals}>
+        <View style={styles.totalRow}>
+          <Text style={styles.totalLabel}>Subtotal</Text>
+          <Text style={styles.totalValue}>{formatCurrency(totals.subtotal)}</Text>
+        </View>
+        <View style={styles.totalRow}>
+          <Text style={styles.totalLabel}>Discount</Text>
+          <Text style={styles.totalValue}>{formatCurrency(totals.discountTotal)}</Text>
+        </View>
+        <View style={styles.grandTotalRow}>
+          <Text style={styles.grandTotalLabel}>TOTAL</Text>
+          <Text style={styles.grandTotalValue}>{formatCurrency(totals.total)}</Text>
+        </View>
+      </View>
+
+      <View style={styles.orderActions}>
+        <Button
+          title="Hold"
+          variant="outline"
+          icon="archive-outline"
+          style={styles.actionButton}
+          loading={holding}
+          onPress={onHoldTransaction}
+        />
+        <Button
+          title="Void"
+          variant="outline"
+          icon="close-circle-outline"
+          style={styles.actionButton}
+          onPress={onVoidTransaction}
+        />
+      </View>
+      <View style={styles.payWrap}>
+        <Button title="Pay" icon="card-outline" fullWidth size="lg" onPress={onGoToPayment} />
+      </View>
+    </Card>
+  );
+});
+
+type CartItemRowProps = {
+  item: CartItemSnapshot;
+  onDecrement: (productId: number) => void;
+  onIncrement: (productId: number) => void;
+  onOpenPriceEditor: (item: CartItemSnapshot) => void;
+  onRemove: (productId: number) => void;
+};
+
+const CartItemRow = memo(function CartItemRow({
+  item,
+  onDecrement,
+  onIncrement,
+  onOpenPriceEditor,
+  onRemove,
+}: CartItemRowProps) {
+  const decrement = useCallback(() => {
+    onDecrement(item.productId);
+  }, [item.productId, onDecrement]);
+  const increment = useCallback(() => {
+    onIncrement(item.productId);
+  }, [item.productId, onIncrement]);
+  const remove = useCallback(() => {
+    onRemove(item.productId);
+  }, [item.productId, onRemove]);
+  const openPriceEditor = useCallback(() => {
+    onOpenPriceEditor(item);
+  }, [item, onOpenPriceEditor]);
+
+  return (
+    <View style={styles.cartItem}>
+      <ProductImage
+        imageColor={item.imageColor}
+        imageUri={item.imageUri}
+        size={38}
+        style={styles.cartArt}
+      />
+      <View style={styles.cartCopy}>
+        <Text style={styles.cartName}>{item.name}</Text>
+        <Text style={styles.cartMeta}>
+          {item.quantity} x {formatCurrency(item.unitPrice)}
+        </Text>
+        {item.priceOverrideReason ? (
+          <Text style={styles.overrideText}>Adjusted from {formatCurrency(item.baseUnitPrice)}</Text>
+        ) : null}
+        {item.appliedPromotionName && item.discountAmount > 0 ? (
+          <Text style={styles.promoText}>
+            {item.appliedPromotionName}: -{formatCurrency(item.discountAmount)}
+          </Text>
+        ) : null}
+        <View style={styles.quantityControls}>
+          <Pressable onPress={decrement} style={styles.quantityButton}>
+            <Ionicons name="remove" size={16} color={palette.ink} />
+          </Pressable>
+          <Text style={styles.quantityText}>{item.quantity}</Text>
+          <Pressable onPress={increment} style={styles.quantityButton}>
+            <Ionicons name="add" size={16} color={palette.ink} />
+          </Pressable>
+          <Pressable onPress={openPriceEditor} style={styles.priceButton}>
+            <Ionicons name="pricetag-outline" size={15} color={palette.primaryDark} />
+          </Pressable>
+          <Pressable onPress={remove} style={styles.removeButton}>
+            <Ionicons name="close" size={15} color={palette.danger} />
+          </Pressable>
+        </View>
+      </View>
+      <Text style={styles.cartPrice}>{formatCurrency(item.quantity * item.unitPrice)}</Text>
+    </View>
+  );
+});
+
+function CartPromotionUpdater({ promotions }: { promotions: PromotionListItem[] }) {
+  const cartItems = useCartStore((state) => state.items);
+  const updatePromotionDiscounts = useCartStore((state) => state.updatePromotionDiscounts);
+  const promotionDiscounts = useMemo(
+    () => calculatePromotionDiscounts(cartItems, promotions),
+    [cartItems, promotions]
+  );
+
+  useEffect(() => {
+    updatePromotionDiscounts(promotionDiscounts);
+  }, [promotionDiscounts, updatePromotionDiscounts]);
+
+  return null;
+}
 const styles = StyleSheet.create({
   headerActions: {
     alignItems: 'center',
