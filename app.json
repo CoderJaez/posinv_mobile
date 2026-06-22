@@ -2,7 +2,7 @@
   "expo": {
     "name": "Akini POS",
     "slug": "akini-pos-inventory",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "orientation": "landscape",
     "icon": "./assets/images/akini-icon.png",
     "scheme": "posinvmobile",
